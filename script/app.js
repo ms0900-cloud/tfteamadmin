@@ -27,31 +27,45 @@ async function setupPushNotification() {
       return;
     }
 
-    messaging = getMessaging(app);
+    // 1. Service Worker 수동 등록 및 준비 대기 (Scope 명시)
+    const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/" });
+    await navigator.serviceWorker.ready;
 
+    // 2. Messaging 초기화 및 알림 권한 요청
+    messaging = getMessaging(app);
     const permission = await Notification.requestPermission();
     if (permission !== "granted") {
       console.log("알림 권한이 허용되지 않았습니다.");
       return;
     }
 
-    const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+    // 3. FCM Token 생성 및 Firebase DB 저장
     const token = await getToken(messaging, {
       vapidKey: "BJmlzsJ4LAJnis66gze-sYmtlT4J74ft-VnykoLCVxP3xwSMpC4cNyEmVY1Lxegni9LlQGfEqnlpLhNhWZL5xoA",
       serviceWorkerRegistration: registration
     });
 
     if (token) {
+      console.log("FCM Token 발급 성공:", token);
       const safeToken = token.replace(/[.#$\[\]]/g, ""); 
       await set(ref(db, `fcmTokens/${safeToken}`), {
         token: token,
         createdAt: new Date().toISOString()
       });
+    } else {
+      console.warn("FCM 토큰을 생성할 수 없습니다.");
     }
 
+    // 4. 포그라운드(웹 화면이 켜져 있을 때) 알림 수신
     onMessage(messaging, (payload) => {
-      if (payload.notification) {
-        alert(`${payload.notification.title || "온라인 출입 시스템"}\n\n${payload.notification.body || ""}`);
+      console.log("포그라운드 메시지 수신:", payload);
+      const title = payload.notification?.title || payload.data?.title || "온라인 출입 시스템";
+      const body = payload.notification?.body || payload.data?.body || "새로운 알림이 도착했습니다.";
+      
+      if (Notification.permission === "granted") {
+        new Notification(title, { body, icon: "/image/favicon.png" });
+      } else {
+        alert(`${title}\n\n${body}`);
       }
     });
 
@@ -146,11 +160,9 @@ function setupStudentPage() {
     const idElems = document.querySelectorAll('.multi-studentId');
     const nameElems = document.querySelectorAll('.multi-studentName');
     
-    // 1. 개별 입력된 날짜 수집
     const dateElems = Array.from(document.querySelectorAll('.multi-studentDate'));
     let dateSet = new Set(dateElems.map(el => el.value.trim()).filter(Boolean));
 
-    // 2. 만약 개별 날짜가 없고 기간(범위)이 설정되어 있다면 기간 자동 계산
     const rangeStart = document.getElementById('rangeStartDate')?.value?.trim();
     const rangeEnd = document.getElementById('rangeEndDate')?.value?.trim();
 
@@ -281,7 +293,6 @@ function setupStudentPage() {
           const reason = data.reason || "(사유 정보 없음)";
           const teacher = data.teacher || "(지도 교사 정보 없음)";
 
-          // 수정: accept가 false일 때는 "거부됨"이 아니라 "승인 대기 중"으로 표시
           let accept = "승인 대기 중(Đang chờ phê duyệt)";
           if (data.accept === true) {
             accept = "허가됨(Đã được chấp nhận)";
