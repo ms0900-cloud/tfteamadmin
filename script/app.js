@@ -1,445 +1,683 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="./style.css">
-    <link rel="icon" type="image/png" href="./image/kakaotalk_20250308_170326905.png">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <title>온라인 출입 시스템</title>
-    <link href="https://cdn.jsdelivr.net/gh/sun-peak/suit-font@v1/style.css" rel="stylesheet">
-</head>
-<body>
-<div>
-  <h1>STUDENT | 학생</h1>
-    <button id="requestPageBtn">출입 요청</button>
-    <button id="qrGenerateFormBtn">QR 생성</button>
-    <button id="statusCheckBtn">신청/승인 여부 조회</button>
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+import { getDatabase, ref, get, update, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+import { getMessaging, getToken, onMessage, isSupported } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-messaging.js";
 
-  <!-- 1. 출입 요청 폼 -->
-  <div id="requestForm" style="display: none;">
-    <h1>출입 요청</h1>
+const firebaseConfig = {
+  apiKey: "AIzaSyBWVZERDb9xbfqCzG3bZvRIciCslbhGTD4",
+  authDomain: "entry-4a14b.firebaseapp.com",
+  databaseURL: "https://tfteamdata-default-rtdb.firebaseio.com/",
+  projectId: "entry-4a14b",
+  storageBucket: "entry-4a14b.firebasestorage.app",
+  messagingSenderId: "262491101728",
+  appId: "1:262491101728:web:c67d03020d7e753e07ba45",
+  measurementId: "G-V45QGJ3D8E"
+};
 
-    <!-- 신청 학생 목록 영역 -->
-    <div id="studentContainer">
-      <label>신청 학생 (학번 / 이름):</label>
-      <div id="studentList">
-        <div class="student-entry" style="display: flex; gap: 10px; margin-bottom: 5px;">
-          <input type="text" class="multi-studentId" placeholder="학번 입력" style="flex: 1;" />
-          <input type="text" class="multi-studentName" placeholder="이름 입력" style="flex: 1;" />
-        </div>
-      </div>
-      <button type="button" id="addStudentBtn" style="background: #e0e0e0; color: #333; padding: 0.5rem; margin-top: 0;">+ 인원 추가</button>
-    </div>
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
 
-    <!-- 날짜 영역 (회색 박스) -->
-    <div id="dateContainer" style="background: #f5f5f5; border: 1px solid #ddd; padding: 15px; margin-top: 15px; border-radius: 8px;">
-      <label style="font-weight: bold; display: block; margin-bottom: 8px;">사용하고자 하는 날짜:</label>
+// ==================== Chrome 푸시 알림 설정 ====================
+let messaging;
+
+async function setupPushNotification() {
+  try {
+    const supported = await isSupported();
+    if (!supported) {
+      console.log("이 브라우저는 푸시 알림을 지원하지 않습니다.");
+      return;
+    }
+
+    messaging = getMessaging(app);
+
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      console.log("알림 권한이 허용되지 않았습니다.");
+      return;
+    }
+
+    const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+    const token = await getToken(messaging, {
+      vapidKey: "BJmlzsJ4LAJnis66gze-sYmtlT4J74ft-VnykoLCVxP3xwSMpC4cNyEmVY1Lxegni9LlQGfEqnlpLhNhWZL5xoA",
+      serviceWorkerRegistration: registration
+    });
+
+    if (token) {
+      const safeToken = token.replace(/[.#$\[\]]/g, ""); 
+      await set(ref(db, `fcmTokens/${safeToken}`), {
+        token: token,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    onMessage(messaging, (payload) => {
+      if (payload.notification) {
+        alert(`${payload.notification.title || "온라인 출입 시스템"}\n\n${payload.notification.body || ""}`);
+      }
+    });
+
+  } catch (error) {
+    console.error("푸시 알림 설정 오류:", error);
+  }
+}
+
+setupPushNotification();
+
+// ==================== 공통 및 인증 기능 ====================
+let isLoggedIn = false;
+let currentTeacherName = '';
+
+function parseGradeClass(id) {
+  if (!id) return null;
+  const idStr = String(id);
+  let grade, classNum;
+  if (idStr.length === 5) {
+    grade = idStr.slice(0, 2);
+    classNum = idStr.slice(2, 3);
+  } else {
+    grade = idStr.slice(0, 1);
+    classNum = idStr.slice(1, 2);
+  }
+  return { grade, classNum };
+}
+
+async function teacherLogin(email, password) {
+  try {
+    const teacherRef = ref(db, 'teacher');
+    const snapshot = await get(teacherRef);
+    
+    if (snapshot.exists()) {
+      const teachers = snapshot.val();
+      for (const key in teachers) {
+        const teacher = teachers[key];
+        if (teacher && typeof teacher === 'object') {
+          if (teacher.email === email && teacher.password === password) {
+            currentTeacherName = teacher.name || key;
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  } catch (error) {
+    console.error("로그인 오류:", error);
+    return false;
+  }
+}
+
+function showLoginModal() {
+  const modal = document.getElementById('loginModal');
+  const content = document.getElementById('content');
+  const loginBtn = document.getElementById('loginBtn');
+  if (!modal || !content) return;
+
+  modal.style.display = 'flex';
+  content.style.display = 'none';
+  
+  if (loginBtn && !loginBtn.dataset.bound) {
+    loginBtn.dataset.bound = "true";
+    loginBtn.addEventListener('click', async () => {
+      const email = document.getElementById('teacherEmail')?.value.trim();
+      const password = document.getElementById('teacherPassword')?.value.trim();
       
-      <div id="dateList">
-        <div class="date-entry" style="margin-bottom: 5px;">
-          <input type="date" class="multi-studentDate" />
-        </div>
-      </div>
-      <button type="button" id="addDateBtn" style="background: #e0e0e0; color: #333; padding: 0.5rem; margin-top: 5px;">+ 날짜 추가</button>
+      if (!email || !password) {
+        alert('이메일과 비밀번호를 입력해주세요.');
+        return;
+      }
+      
+      const success = await teacherLogin(email, password);
+      if (success) {
+        isLoggedIn = true;
+        modal.style.display = 'none';
+        content.style.display = 'block';
+        searchStudents();
+      } else {
+        alert('이메일 또는 비밀번호가 잘못되었습니다.');
+      }
+    });
+  }
+}
 
-      <!-- 기간 선택 영역 -->
-      <div id="dateRangeContainer" style="margin-top: 12px; padding: 12px; background: #ffffff; border: 1px dashed #ccc; border-radius: 6px;">
-        <label style="display: block; font-weight: bold; margin-bottom: 8px; font-size: 0.9em; color: #555;">
-          📌 기간 설정으로 날짜 일괄 추가 (선택사항)
-        </label>
-        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-          <input type="date" id="rangeStartDate" style="flex: 1; min-width: 130px;" />
-          <span>~</span>
-          <input type="date" id="rangeEndDate" style="flex: 1; min-width: 130px;" />
-          <button type="button" id="addDateRangeBtn" style="background: #d0d0d0; color: #333; padding: 0.5rem; font-weight: bold;">범위 추가</button>
-        </div>
-      </div>
-    </div>
+// ==================== 학생 페이지 기능 ====================
+function setupStudentPage() {
+  async function uploadStudentData() {
+    const reason = document.getElementById("studentReason")?.value?.trim();
+    const teacher = document.getElementById("studentTeacher")?.value;
 
-    <!-- 기타 정보 입력 -->
-    <label for="studentReason" style="margin-top: 15px; display: block;">사유:</label>
-    <input type="text" id="studentReason" placeholder="(예: 동아리 뚝딱뚝딱 공돌이)" />
+    const idElems = document.querySelectorAll('.multi-studentId');
+    const nameElems = document.querySelectorAll('.multi-studentName');
+    
+    // 1. 개별 입력된 날짜 수집
+    const dateElems = Array.from(document.querySelectorAll('.multi-studentDate'));
+    let dateSet = new Set(dateElems.map(el => el.value.trim()).filter(Boolean));
 
-    <label for="studentTeacher" style="display: block; margin-top: 10px;">담당 교사:</label>
-    <select id="studentTeacher">
-      <option value="">담당 교사를 선택하세요</option>
-    </select>
+    // 2. 만약 개별 날짜가 없고 기간(범위)이 설정되어 있다면 기간 자동 계산
+    const rangeStart = document.getElementById('rangeStartDate')?.value?.trim();
+    const rangeEnd = document.getElementById('rangeEndDate')?.value?.trim();
 
-    <br>
-    <button id="uploadStudentData" type="button" style="margin-top: 15px;">요청하기</button>
-  </div>
+    if (dateSet.size === 0 && rangeStart && rangeEnd) {
+      const startDate = new Date(rangeStart);
+      const endDate = new Date(rangeEnd);
+      if (!isNaN(startDate) && !isNaN(endDate) && startDate <= endDate) {
+        let current = new Date(startDate);
+        while (current <= endDate) {
+          dateSet.add(current.toISOString().slice(0, 10));
+          current.setDate(current.getDate() + 1);
+        }
+      }
+    }
 
-  <!-- 2. QR 생성 폼 -->
-  <div id="qrGenerateForm" style="display: none;">
-    <h1>QR 생성</h1>
-    <label for="qrStudentId">학번:</label>
-    <input type="text" id="qrStudentId" placeholder="학번 입력" />
+    const dateValues = Array.from(dateSet);
 
-    <label for="qrStudentName">이름:</label>
-    <input type="text" id="qrStudentName" placeholder="이름 입력" />
+    if (!reason || !teacher) {
+      alert('사유와 담당 교사를 선택해주세요.');
+      return;
+    }
 
-    <label for="qrStudentDate">날짜:</label>
-    <input type="date" id="qrStudentDate" placeholder="날짜 입력" />
+    if (dateValues.length === 0) {
+      alert('사용하고자 하는 날짜를 입력해주세요.');
+      return;
+    }
 
-    <br/>
-    <button type="button" onclick="generateQRCode()">생성</button>
-    <div id="qrcode"></div>
-  </div>
+    let successes = 0;
+    const errors = [];
 
-  <!-- 3. 신청 / 승인 여부 조회 폼 -->
-  <div id="statusCheckForm" style="display: none;">
-    <h1>신청 여부 조회</h1>
+    try {
+      if (idElems.length > 0 && nameElems.length > 0) {
+        for (let i = 0; i < idElems.length; i++) {
+          const sid = idElems[i].value.trim();
+          const sname = (nameElems[i] && nameElems[i].value.trim()) || '';
+          if (!sid || !sname) {
+            errors.push(`학생 ${i + 1}: 학번 또는 이름 누락`);
+            continue;
+          }
 
-    <div>
-      <label for="checkStudentId">학번:</label>
-      <input type="text" id="checkStudentId" placeholder="학번 입력" />
-    </div>
+          const gc = parseGradeClass(sid);
+          if (!gc) {
+            errors.push(`${sid}: 잘못된 학번 형식`);
+            continue;
+          }
 
-    <div>
-      <label for="checkStudentName">이름:</label>
-      <input type="text" id="checkStudentName" placeholder="이름 입력" />
-    </div>
+          for (const sdate of dateValues) {
+            const dbPath = `class/${gc.grade}-${gc.classNum}/${sid}/${sdate}`;
+            const dbRef = ref(db, dbPath);
+            const studentData = {
+              name: sname,
+              reason: reason,
+              accept: false,
+              enterTime: "없음",
+              leaveTime: "없음",
+              realEnter: false,
+              teacher: teacher
+            };
+            await set(dbRef, studentData);
+            successes++;
+          }
+        }
+      } else {
+        const studentId = document.getElementById("studentId")?.value?.trim();
+        const studentName = document.getElementById("studentName")?.value?.trim();
 
-    <div>
-      <label for="checkStudentDate">날짜:</label>
-      <input type="date" id="checkStudentDate" placeholder="날짜 입력" />
-    </div>
+        if (!studentId || !studentName) {
+          alert('학번과 이름을 입력해주세요.');
+          return;
+        }
 
-    <div>
-      <label for="checkStudentTeacher">담당 교사:</label>
-      <select id="checkStudentTeacher">
-        <option value="">담당 교사를 선택하세요</option>
-      </select>
-    </div>
+        const gc = parseGradeClass(studentId);
+        if (!gc) {
+          alert('잘못된 학번 형식입니다.');
+          return;
+        }
 
-    <button id="doCheckBtn" type="button">조회하기</button>
-
-    <!-- 실시간 파이어베이스 승인 결과 박스 -->
-    <div id="approvalResult" style="margin-top: 15px; padding: 20px; border: 1px solid #ccc; border-radius: 8px; background-color: #f9f9f9; text-align: center;"></div>
-  </div>
-
-  <footer class="footer">
-    <p>© 2026 Online Entry. All rights reserved.</p>
-  </footer>
-</div>
-
-  <!-- 파이어베이스 모듈 스크립트 연결 -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-    import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
-
-    const firebaseConfig = {
-      apiKey: "AIzaSyBWVZERDb9xbfqCzG3bZvRIciCslbhGTD4",
-      authDomain: "entry-4a14b.firebaseapp.com",
-      databaseURL: "https://tfteamdata-default-rtdb.firebaseio.com/",
-      projectId: "entry-4a14b",
-      storageBucket: "entry-4a14b.firebasestorage.app",
-      messagingSenderId: "262491101728",
-      appId: "1:262491101728:web:c67d03020d7e753e07ba45"
-    };
-
-    const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
-
-    // 교사 목록 로드 함수
-    async function loadTeacherOptions() {
-      const teacherSelect = document.getElementById('studentTeacher');
-      const checkTeacherSelect = document.getElementById('checkStudentTeacher');
-
-      try {
-        const snapshot = await get(ref(db, 'teacher'));
-        
-        if (teacherSelect) teacherSelect.innerHTML = '<option value="">담당 교사를 선택하세요</option>';
-        if (checkTeacherSelect) checkTeacherSelect.innerHTML = '<option value="">담당 교사를 선택하세요</option>';
-
-        if (snapshot.exists()) {
-          const teacherData = snapshot.val();
-
-          const appendOption = (nameValue) => {
-            if (!nameValue) return;
-            if (teacherSelect) {
-              const opt1 = document.createElement('option');
-              opt1.value = nameValue;
-              opt1.textContent = nameValue;
-              teacherSelect.appendChild(opt1);
-            }
-            if (checkTeacherSelect) {
-              const opt2 = document.createElement('option');
-              opt2.value = nameValue;
-              opt2.textContent = nameValue;
-              checkTeacherSelect.appendChild(opt2);
-            }
+        for (const sdate of dateValues) {
+          const dbPath = `class/${gc.grade}-${gc.classNum}/${studentId}/${sdate}`;
+          const dbRef = ref(db, dbPath);
+          const studentData = {
+            name: studentName,
+            reason: reason,
+            accept: false,
+            enterTime: "없음",
+            leaveTime: "없음",
+            realEnter: false,
+            teacher: teacher
           };
-
-          if (typeof teacherData === 'object' && !Array.isArray(teacherData)) {
-            Object.entries(teacherData).forEach(([key, value]) => {
-              let teacherName = key;
-              if (value && typeof value === 'object' && value.name) {
-                teacherName = value.name;
-              } else if (typeof value === 'string') {
-                teacherName = value;
-              }
-              appendOption(teacherName);
-            });
-          } else if (Array.isArray(teacherData)) {
-            teacherData.forEach((teacher) => {
-              const teacherName = typeof teacher === 'object' ? teacher.name : teacher;
-              appendOption(teacherName);
-            });
-          }
+          await set(dbRef, studentData);
+          successes++;
         }
-      } catch (error) {
-        console.error('교사 목록 로드 오류:', error);
       }
+
+      let msg = '';
+      if (successes > 0) msg += `출입 요청이 완료되었습니다! (${successes}건)`;
+      if (errors.length > 0) msg += `\n다음 항목은 처리되지 않았습니다:\n- ${errors.join('\n- ')}`;
+      alert(msg);
+      
+      const requestForm = document.getElementById("requestForm");
+      if (requestForm) requestForm.style.display = "none";
+    } catch (error) {
+      alert(`오류 발생: ${error.message}`);
     }
+  }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      loadTeacherOptions();
+  function displayStudentInfo() {
+    const studentInfoElem = document.getElementById('studentInfo');
+    const circleCheck = document.getElementById('circleCheck');
+    if (!studentInfoElem || !circleCheck) return;
 
-      // 기본 날짜 오늘로 설정
-      const today = new Date().toISOString().slice(0, 10);
-      const defaultDateInput = document.querySelector('.multi-studentDate');
-      if (defaultDateInput && !defaultDateInput.value) {
-        defaultDateInput.value = today;
-      }
-    });
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('id');
+    const date = params.get('date');
 
-    function parseGradeClass(id) {
-      if (!id) return null;
-      const idStr = String(id);
-      let grade, classNum;
-      if (idStr.length === 5) {
-        grade = idStr.slice(0, 2);
-        classNum = idStr.slice(2, 3);
-      } else {
-        grade = idStr.slice(0, 1);
-        classNum = idStr.slice(1, 2);
-      }
-      return { grade, classNum };
-    }
-
-    // 승인 상태만 크고 색상을 다르게 표현하는 결과 함수
-    function renderStatusHtml(statusText, color) {
-      return `<h1 style="color: ${color}; font-size: 2rem; font-weight: bold; margin: 0;">${statusText}</h1>`;
-    }
-
-    // 승인 여부 실제 DB 확인 함수
-    async function checkApprovalStatus() {
-      const studentId = document.getElementById("checkStudentId")?.value.trim();
-      const studentDate = document.getElementById("checkStudentDate")?.value;
-      const selectedTeacher = document.getElementById("checkStudentTeacher")?.value;
-      const resultBox = document.getElementById("approvalResult");
-
-      if (!resultBox) return;
-
-      if (!studentId || !studentDate || !selectedTeacher) {
-        resultBox.innerHTML = renderStatusHtml("신청 기록 없음", "#ff4c4c");
-        return;
-      }
-
-      const gc = parseGradeClass(studentId);
-
+    if (id && date) {
+      const gc = parseGradeClass(id);
       if (!gc) {
-        resultBox.innerHTML = renderStatusHtml("신청 기록 없음", "#ff4c4c");
+        studentInfoElem.innerHTML = "잘못된 학번 형식입니다.";
         return;
       }
 
-      const dbPath = `class/${gc.grade}-${gc.classNum}/${studentId}/${studentDate}`;
-      const dbRef = ref(db, dbPath);
+      const dbRef = ref(db, `/class/${gc.grade}-${gc.classNum}/${id}/${date}`);
+      get(dbRef).then((snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.val();
+          const name = data.name || "(이름 정보 없음)";
+          const reason = data.reason || "(사유 정보 없음)";
+          const teacher = data.teacher || "(지도 교사 정보 없음)";
 
-      try {
-        const snapshot = await get(dbRef);
+          // 수정: accept가 false일 때는 "거부됨"이 아니라 "승인 대기 중"으로 표시
+          let accept = "승인 대기 중(Đang chờ phê duyệt)";
+          if (data.accept === true) {
+            accept = "허가됨(Đã được chấp nhận)";
+          } else if (data.accept === "rejected" || data.accept === "거부됨") {
+            accept = "거부됨(Đã bị từ chối)";
+          }
 
-        if (!snapshot.exists()) {
-          resultBox.innerHTML = renderStatusHtml("신청 기록 없음", "#ff4c4c");
-          return;
-        }
+          const realEnter = typeof data.realEnter === 'boolean' 
+            ? data.realEnter
+              ? "사용함(Đã sử dụng)" 
+              : "사용 안 함(Không sử dụng)" 
+            : data.realEnter || "미확인(Chưa xác nhận)";
 
-        const data = snapshot.val();
+          if (data.accept === true && data.realEnter === false) {
+            circleCheck.style.backgroundColor = "green";
+          } else {
+            circleCheck.style.backgroundColor = "#810707";
+          }
 
-        if (data.teacher !== selectedTeacher) {
-          resultBox.innerHTML = renderStatusHtml("신청 기록 없음", "#ff4c4c");
-          return;
-        }
-
-        if (data.accept === true) {
-          resultBox.innerHTML = renderStatusHtml("승인 완료", "#2e7d32");
-        } else if (data.accept === false) {
-          resultBox.innerHTML = renderStatusHtml("승인 거부", "#ff4c4c");
+          studentInfoElem.innerHTML = `
+            학번(Mã số lớp): ${id}<br>
+            이름(Họ tên): ${name}<br>
+            날짜(Ngày hôm nay): ${date}<br>
+            사유(Lý do): ${reason}<br>
+            지도 교사(GV chủ nhiệm): ${teacher}<br>
+            출입 여부(Ra vào): ${accept}<br>
+            사용 여부(Đã sử dụng): ${realEnter}
+          `;
         } else {
-          resultBox.innerHTML = renderStatusHtml("승인 대기중", "#fbc02d");
+          studentInfoElem.innerHTML = "해당 날짜에 대한 데이터가 없습니다.(KHÔNG CÓ DỮ LIỆU CHO NGÀY NÀY.)";
         }
-      } catch (error) {
-        resultBox.innerHTML = renderStatusHtml("신청 기록 없음", "#ff4c4c");
+      }).catch((error) => {
+        studentInfoElem.innerHTML = `데이터 조회 중 오류가 발생했습니다(ĐÃ XẢY RA LỖI KHI TRUY XUẤT DỮ LIỆU): ${error}`;
+      });
+    } else {
+      studentInfoElem.innerHTML = "정보가 없습니다.(KHÔNG CÓ THÔNG TIN.)";
+    }
+  }
+
+  document.getElementById("uploadStudentData")?.addEventListener("click", uploadStudentData);
+  document.getElementById("requestPageBtn")?.addEventListener("click", () => {
+    const requestForm = document.getElementById("requestForm");
+    if (requestForm) requestForm.style.display = "block";
+  });
+
+  displayStudentInfo();
+}
+
+// ==================== 검색 및 데이터 표시 ====================
+async function searchStudents() {
+  const selectedGrade = document.getElementById('studentDefGrade')?.value;
+  const selectedEnter = document.getElementById('studentDefEnter')?.value;
+  const selectedRequest = document.getElementById('studentDefRequest')?.value;
+  
+  const startDate = document.getElementById('studentDefStartDate')?.value;
+  const endDate = document.getElementById('studentDefEndDate')?.value;
+  
+  const listContainer = document.getElementById('listofStudents');
+
+  if (!listContainer) return;
+
+  try {
+    const snapshot = await get(ref(db, 'class'));
+    listContainer.innerHTML = '';
+
+    if (!snapshot.exists()) {
+      listContainer.innerHTML = '<div class="no-data">데이터가 없습니다.</div>';
+      return;
+    }
+
+    const classes = snapshot.val();
+    let foundCount = 0;
+
+    for (const classKey in classes) {
+      const grade = classKey.split('-')[0];
+      if (selectedGrade && grade !== selectedGrade) continue;
+
+      const students = classes[classKey];
+      for (const studentId in students) {
+        const dateEntries = students[studentId];
+        
+        for (const currentDate in dateEntries) {
+          if (startDate && currentDate < startDate) continue;
+          if (endDate && currentDate > endDate) continue;
+
+          const studentData = dateEntries[currentDate];
+
+          if (studentData.teacher !== currentTeacherName) continue;
+          if (selectedEnter && String(studentData.accept) !== selectedEnter) continue;
+          if (selectedRequest === 'used' && !studentData.realEnter) continue;
+          if (selectedRequest === 'unused' && studentData.realEnter) continue;
+
+          displayStudentItem(classKey, studentId, currentDate, studentData);
+          foundCount++;
+        }
       }
     }
 
-    document.getElementById("doCheckBtn")?.addEventListener("click", checkApprovalStatus);
+    if (foundCount === 0) {
+      listContainer.innerHTML = '<div class="no-data">검색 결과가 없습니다.</div>';
+    }
+  } catch (error) {
+    console.error('검색 오류:', error);
+    alert('학생 검색 중 오류가 발생했습니다.');
+  }
+}
 
-    // 출입 요청 데이터 Firebase 저장 이벤트
-    document.getElementById("uploadStudentData")?.addEventListener("click", async () => {
-      const studentEntries = document.querySelectorAll("#studentList .student-entry");
-      const students = [];
-      studentEntries.forEach(entry => {
-        const id = entry.querySelector(".multi-studentId")?.value.trim();
-        const name = entry.querySelector(".multi-studentName")?.value.trim();
-        if (id && name) students.push({ id, name });
-      });
+function displayStudentItem(classKey, studentId, date, studentData) {
+  const listContainer = document.getElementById('listofStudents');
+  const studentDiv = document.createElement('div');
+  studentDiv.className = 'student-item';
+  studentDiv.dataset.class = classKey;
+  studentDiv.dataset.id = studentId;
+  studentDiv.dataset.date = date;
 
-      const dateInputs = document.querySelectorAll("#dateList .multi-studentDate");
-      const dates = Array.from(dateInputs)
-        .map(input => input.value)
-        .filter(val => val !== "");
+  studentDiv.innerHTML = `
+    <div class="student-info">
+      <input type="checkbox" id="chk-${studentId}-${date}" class="student-check">
+      <label for="chk-${studentId}-${date}">
+        <strong>[${date}] ${classKey} | ${studentId}</strong> - ${studentData.name || '이름 없음'}
+      </label>
+    </div>
+    <div class="student-details">
+      <span>사유: ${studentData.reason || '사유 없음'}</span>
+      <span>출입 상태: ${getStatusText(studentData.accept, 'accept')}</span>
+      <span>출입증 사용 여부: ${getStatusText(studentData.realEnter, 'realEnter')}</span>
+      <span>담당 교사: ${studentData.teacher || '미지정'}</span>
+      <span>출입: ${studentData.enterTime || '없음'}</span>
+      <span>퇴실: ${studentData.leaveTime || '없음'}</span>
+    </div>
+  `;
 
-      const reason = document.getElementById("studentReason")?.value.trim();
-      const teacher = document.getElementById("studentTeacher")?.value;
+  listContainer.appendChild(studentDiv);
+}
 
-      if (students.length === 0) return alert("학번과 이름을 입력해주세요.");
-      if (dates.length === 0) return alert("날짜를 선택해주세요.");
-      if (!teacher) return alert("담당 교사를 선택해주세요.");
+function getStatusText(value, type) {
+  if (value === undefined || value === null) return '정보 없음';
+  
+  if (type === 'accept') {
+    return value ? '허가됨' : '대기 중 / 미허가';
+  } else if (type === 'realEnter') {
+    return value ? '사용 완료' : '사용 안함';
+  }
+  return String(value);
+}
 
-      try {
-        for (const student of students) {
-          const gc = parseGradeClass(student.id);
-          if (!gc) continue;
+function toggleAllCheckboxes() {
+  const isChecked = document.getElementById('selectAll')?.checked;
+  document.querySelectorAll('.student-check').forEach(checkbox => {
+    checkbox.checked = isChecked;
+  });
+}
 
-          for (const date of dates) {
-            const dbPath = `class/${gc.grade}-${gc.classNum}/${student.id}/${date}`;
-            await set(ref(db, dbPath), {
-              id: student.id,
-              name: student.name,
-              reason: reason || "",
-              teacher: teacher,
-              accept: null
-            });
+async function updateStudentApprovals() {
+  const selectedStudents = document.querySelectorAll('.student-check:checked');
+  if (selectedStudents.length === 0) {
+    alert('학생을 선택해주세요.');
+    return;
+  }
+
+  try {
+    const updates = {};
+    selectedStudents.forEach(checkbox => {
+      const studentItem = checkbox.closest('.student-item');
+      const classKey = studentItem.dataset.class;
+      const studentId = studentItem.dataset.id;
+      const date = studentItem.dataset.date;
+      
+      updates[`class/${classKey}/${studentId}/${date}/accept`] = true;
+    });
+
+    await update(ref(db), updates);
+    alert(`${selectedStudents.length}명의 학생 출입이 허가되었습니다.`);
+    searchStudents();
+  } catch (error) {
+    console.error('업데이트 오류:', error);
+    alert('학생 정보 업데이트 중 오류가 발생했습니다.');
+  }
+}
+
+// ==================== 선생님 요청 실시간 알림 ====================
+const notifiedRequests = new Set();
+
+function setupTeacherRequestNotification() {
+  if (!document.getElementById("listofStudents")) return;
+
+  onValue(ref(db, "class"), (snapshot) => {
+    if (!snapshot.exists()) return;
+    const classes = snapshot.val();
+
+    for (const classKey in classes) {
+      const students = classes[classKey];
+      for (const studentId in students) {
+        const dates = students[studentId];
+        for (const date in dates) {
+          const data = dates[date];
+          const requestKey = `${classKey}_${studentId}_${date}`;
+
+          if (data && data.accept === false && data.teacher === currentTeacherName) {
+            if (!notifiedRequests.has(requestKey)) {
+              showRequestNotification(studentId, data.name || "학생", data.reason || "사유 없음");
+              notifiedRequests.add(requestKey);
+            }
           }
         }
-        alert("출입 요청이 성공적으로 제출되었습니다.");
-      } catch (error) {
-        console.error("요청 저장 실패:", error);
-        alert("요청 중 오류가 발생했습니다.");
       }
+    }
+  });
+}
+
+function showRequestNotification(studentId, studentName, reason) {
+  if (!("Notification" in window)) {
+    alert(`[새 출입 요청]\n학생: ${studentName}\n학번: ${studentId}\n사유: ${reason}`);
+    return;
+  }
+
+  if (Notification.permission === "granted") {
+    new Notification("🔔 새로운 출입 요청", {
+      body: `${studentName} (${studentId}) 학생의 요청이 있습니다.\n사유: ${reason}`,
+      icon: "/image/favicon.png"
     });
-  </script>
+  }
+}
 
-  <script>
-    // 탭 이동 관련 토글 스크립트
-    document.getElementById("requestPageBtn").addEventListener("click", () => {
-      document.getElementById("requestForm").style.display = "block";
-      document.getElementById("qrGenerateForm").style.display = "none";
-      document.getElementById("statusCheckForm").style.display = "none";
-    });
+// ==================== 시간 및 출퇴실 처리 ====================
+function getVietnamTime() {
+  const now = new Date();
+  now.setHours(now.getHours() + 7);
+  return now.toISOString().replace('T', ' ').substring(0, 19);
+}
 
-    document.getElementById("qrGenerateFormBtn").addEventListener("click", () => {
-      document.getElementById("qrGenerateForm").style.display = "block";
-      document.getElementById("requestForm").style.display = "none";
-      document.getElementById("statusCheckForm").style.display = "none";
-    });
+function setupEntryExitButtons() {
+  const enterBtn = document.getElementById('enter-btn');
+  const leaveBtn = document.getElementById('leave-btn');
+  if (!enterBtn || !leaveBtn) return;
 
-    document.getElementById("statusCheckBtn").addEventListener("click", () => {
-      document.getElementById("statusCheckForm").style.display = "block";
-      document.getElementById("requestForm").style.display = "none";
-      document.getElementById("qrGenerateForm").style.display = "none";
-    });
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get('id');
+  const date = params.get('date');
+  if (!id || !date) return;
 
-    // 동적 폼 생성 스크립트
-    document.getElementById('addStudentBtn').addEventListener('click', () => {
-      const studentList = document.getElementById('studentList');
-      const newEntry = document.createElement('div');
-      newEntry.className = 'student-entry';
-      newEntry.style.cssText = 'display: flex; gap: 10px; margin-bottom: 5px;';
-      newEntry.innerHTML = `
-        <input type="text" class="multi-studentId" placeholder="학번 입력" style="flex: 1;" />
-        <input type="text" class="multi-studentName" placeholder="이름 입력" style="flex: 1;" />
-        <button type="button" onclick="this.parentElement.remove()" style="width: auto; margin: 0; background: #ff4c4c; color: white; border: none; padding: 0 12px; cursor: pointer; border-radius: 4px;">X</button>
-      `;
-      studentList.appendChild(newEntry);
-    });
+  const gc = parseGradeClass(id);
+  if (!gc) return;
 
-    document.getElementById('addDateBtn').addEventListener('click', () => {
-      const dateList = document.getElementById('dateList');
-      const newEntry = document.createElement('div');
-      newEntry.className = 'date-entry';
-      newEntry.style.cssText = 'display: flex; gap: 10px; margin-bottom: 5px;';
-      newEntry.innerHTML = `
-        <input type="date" class="multi-studentDate" style="flex: 1;" />
-        <button type="button" onclick="this.parentElement.remove()" style="width: auto; margin: 0; background: #ff4c4c; color: white; border: none; padding: 0 12px; cursor: pointer; border-radius: 4px;">X</button>
-      `;
-      dateList.appendChild(newEntry);
-    });
-
-    document.getElementById('addDateRangeBtn').addEventListener('click', () => {
-      const start = document.getElementById('rangeStartDate').value;
-      const end = document.getElementById('rangeEndDate').value;
-      const dateList = document.getElementById('dateList');
-
-      if (!start || !end) {
-        alert('시작일과 종료일을 모두 입력해주세요.');
-        return;
-      }
-
-      const startDate = new Date(start);
-      const endDate = new Date(end);
-
-      if (startDate > endDate) {
-        alert('시작일이 종료일보다 이전이어야 합니다.');
-        return;
-      }
-
-      const existingDates = new Set(Array.from(document.querySelectorAll('.multi-studentDate')).map(input => input.value));
-      let current = new Date(startDate);
-      const insertedDates = [];
-
-      while (current <= endDate) {
-        const isoDate = current.toISOString().slice(0, 10);
-        if (!existingDates.has(isoDate)) {
-          const newEntry = document.createElement('div');
-          newEntry.className = 'date-entry';
-          newEntry.style.cssText = 'display: flex; gap: 10px; margin-bottom: 5px;';
-          newEntry.innerHTML = `
-            <input type="date" class="multi-studentDate" style="flex: 1;" value="${isoDate}" />
-            <button type="button" onclick="this.parentElement.remove()" style="width: auto; margin: 0; background: #ff4c4c; color: white; border: none; padding: 0 12px; cursor: pointer; border-radius: 4px;">X</button>
-          `;
-          dateList.appendChild(newEntry);
-          insertedDates.push(isoDate);
-          existingDates.add(isoDate);
-        }
-        current.setDate(current.getDate() + 1);
-      }
-
-      if (insertedDates.length === 0) {
-        alert('선택한 기간의 날짜가 이미 모두 목록에 있습니다.');
+  const dbRef = ref(db, `/class/${gc.grade}-${gc.classNum}/${id}/${date}`);
+  get(dbRef).then((snapshot) => {
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      if (data.accept === true && data.realEnter !== true) {
+        enterBtn.style.display = 'inline-block';
+        enterBtn.addEventListener('click', () => {
+          update(dbRef, { realEnter: true, enterTime: getVietnamTime() })
+            .then(() => {
+              alert('입장 시간이 기록되었습니다!\nThời gian vào đã được ghi lại!');
+              location.reload();
+            })
+            .catch((error) => {
+              alert(`오류 발생: ${error.message}`);
+            });
+        });
       } else {
-        alert(`범위 날짜가 추가되었습니다: ${insertedDates.length}일`);
-      }
-    });
-
-    // QR 코드 생성
-    function generateQRCode() {
-      const container = document.getElementById("qrcode");
-      container.innerHTML = ""; 
-
-      const id = document.getElementById("qrStudentId").value.trim();
-      const name = document.getElementById("qrStudentName").value.trim();
-      const date = document.getElementById("qrStudentDate").value.trim();
-
-      if (!id || !name || !date) {
-        alert("모든 필드를 입력해주세요.");
-        return;
+        enterBtn.style.display = 'none';
       }
 
-      const qrData = `https://tfteamadmin.netlify.app/guard.html?id=${id}&date=${date}`;
-
-      new QRCode(container, {
-        text: qrData,
-        width: 200,
-        height: 200,
-        colorDark: "#000000",
-        colorLight: "#ffffff",
-        correctLevel: QRCode.CorrectLevel.M
+      leaveBtn.addEventListener('click', () => {
+        update(dbRef, { leaveTime: getVietnamTime() })
+          .then(() => {
+            alert('퇴실 시간이 기록되었습니다!\nThời gian ra đã được ghi lại!');
+            location.reload();
+          })
+          .catch((error) => {
+            alert(`오류 발생: ${error.message}`);
+          });
       });
     }
-  </script>
-</body>
-</html>
+  });
+}
+
+// ==================== 교사 목록 동적 관리 ====================
+async function loadTeacherList() {
+  const teacherSelect = document.getElementById('studentTeacher');
+  const checkTeacherSelect = document.getElementById('checkStudentTeacher');
+  
+  if (!teacherSelect && !checkTeacherSelect) return;
+
+  try {
+    const snapshot = await get(ref(db, 'teacher'));
+    
+    if (teacherSelect) teacherSelect.innerHTML = '<option value="">담당 교사를 선택하세요</option>';
+    if (checkTeacherSelect) checkTeacherSelect.innerHTML = '<option value="">담당 교사를 선택하세요</option>';
+
+    if (snapshot.exists()) {
+      const teacherData = snapshot.val();
+
+      const appendOption = (nameValue) => {
+        if (!nameValue) return;
+        if (teacherSelect) {
+          const opt1 = document.createElement('option');
+          opt1.value = nameValue;
+          opt1.textContent = nameValue;
+          teacherSelect.appendChild(opt1);
+        }
+        if (checkTeacherSelect) {
+          const opt2 = document.createElement('option');
+          opt2.value = nameValue;
+          opt2.textContent = nameValue;
+          checkTeacherSelect.appendChild(opt2);
+        }
+      };
+
+      if (typeof teacherData === 'object' && !Array.isArray(teacherData)) {
+        Object.entries(teacherData).forEach(([key, value]) => {
+          let teacherName = key;
+          if (value && typeof value === 'object' && value.name) {
+            teacherName = value.name;
+          } else if (typeof value === 'string') {
+            teacherName = value;
+          }
+          appendOption(teacherName);
+        });
+      } else if (Array.isArray(teacherData)) {
+        teacherData.forEach((teacher) => {
+          const teacherName = typeof teacher === 'object' ? teacher.name : teacher;
+          appendOption(teacherName);
+        });
+      }
+    }
+  } catch (error) {
+    console.error('선생님 목록 로드 오류:', error);
+  }
+}
+
+window.addTeacher = async function(key, name, email = '', password = '') {
+  if (!key || !name) {
+    alert('키와 이름을 입력해주세요.');
+    return;
+  }
+  try {
+    await set(ref(db, `teacher/${key}`), { name, email, password });
+    await loadTeacherList();
+    alert(`${name} 선생님이 추가되었습니다.`);
+  } catch (e) {
+    console.error('교사 추가 오류:', e);
+    alert('교사 추가 중 오류가 발생했습니다.');
+  }
+};
+
+function setupPageNavigation() {
+  const pages = [
+    { id: 'go-student-btn', url: 'student.html' },
+    { id: 'go-teacher-btn', url: 'teacher.html' }
+  ];
+
+  pages.forEach(page => {
+    document.getElementById(page.id)?.addEventListener('click', () => {
+      window.location.href = page.url;
+    });
+  });
+}
+
+// ==================== 앱 초기화 ====================
+document.addEventListener("DOMContentLoaded", () => {
+  setupTeacherRequestNotification();
+  if (document.getElementById('studentTeacher') || document.getElementById('checkStudentTeacher')) {
+    loadTeacherList();
+  }
+  setupEntryExitButtons();
+  
+  if (document.getElementById('studentInfo') || document.getElementById('uploadStudentData') || document.getElementById('requestForm')) {
+    setupStudentPage();
+  }
+  
+  if (document.getElementById('go-student-btn') || document.getElementById('go-teacher-btn')) {
+    setupPageNavigation();
+  }
+
+  const today = new Date();
+  today.setHours(today.getHours() + 7); 
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, '0');
+  const dd = String(today.getDate()).padStart(2, '0');
+  const formattedDate = `${yyyy}-${mm}-${dd}`;
+  
+  const qrDateInput = document.getElementById('qrStudentDate');
+  const startDateInput = document.getElementById('studentDefStartDate');
+  const endDateInput = document.getElementById('studentDefEndDate');
+  
+  if (qrDateInput) qrDateInput.value = formattedDate;
+  if (startDateInput) startDateInput.value = formattedDate;
+  if (endDateInput) endDateInput.value = formattedDate;
+
+  document.getElementById('saveCategory')?.addEventListener('click', searchStudents);
+  document.getElementById('selectAll')?.addEventListener('change', toggleAllCheckboxes);
+  document.getElementById('save')?.addEventListener('click', updateStudentApprovals);
+
+  if (document.getElementById('loginModal')) {
+    showLoginModal();
+  }
+});
