@@ -1,0 +1,274 @@
+@import url('https://cdn.jsdelivr.net/gh/sun-peak/suit-font@v1/style.css');
+:root {
+  --main-color: #050A33;
+  --accent-color: #050A33;
+  --bg-color: #f5f5f5;
+  --form-max-width: 600px;
+  --font-base: clamp(0.95rem, 1.2vw, 1.05rem);
+  --font-medium: clamp(1.15rem, 1.8vw, 1.6rem);
+  --font-large: clamp(1.5rem, 2.5vw, 2.5rem);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'SUIT', sans-serif;
+  user-select: none;
+  touch-action: pan-x pan-y;
+}
+
+body {
+  background: var(--bg-color);
+  color: #333;
+  font-size: var(--font-base);
+  line-height: 1.6;
+}
+
+body > div {
+  width: 100%;
+  min-height: 100vh;
+  padding: 4vh 5vw;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  
+}
+
+h1 {
+  font-size: var(--font-large);
+  color: var(--main-color);
+  text-align: center;
+  margin-bottom: 1rem;
+  font-weight: 700;
+}
+
+
+h2 {
+  font-size: var(--font-small);
+  color: var(--main-color);
+  text-align: center;
+  margin-bottom: 1rem;
+  font-weight: 400;
+}
+
+h3{
+  font-size: var(--font-small);
+  color: var(--main-color);
+
+
+  font-weight: 400;
+
+}
+p{
+  font-size: var(--font-medium);
+  color: black;
+  margin-bottom: 1rem;
+  font-weight: 500;
+}
+
+
+/* 체크박스 스타일 개선 */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--main-color);
+  border-radius: 4px;
+  margin-right: 8px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.3s, border-color 0.3s;
+}
+
+input[type="checkbox"]:checked {
+  background-color: var(--main-color);
+  border-color: var(--accent-color);
+}
+
+input[type="checkbox"]::after {
+  content: "✔";
+  color: #fff;
+  font-size: 14px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -58%) scale(0);
+  transition: transform 0.2s ease;
+}
+
+input[type="checkbox"]:checked::after {
+  transform: translate(-50%, -58%) scale(1);
+}
+
+/* 체크박스와 라벨 정렬 */
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--font-base);
+  cursor: pointer;
+  user-select: none;
+}
+#circleCheck{
+  width:5rem;
+  height:5rem;
+  background-color:#050A33;
+  border-radius: 100px;
+
+}
+
+button {
+  background: linear-gradient(to right, var(--main-color), var(--accent-color));
+  color: #fff;
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  margin: 1rem 0;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+  transition: all 0.3s ease;
+  width: 100%;
+  max-width: 600px;
+  
+}
+
+button:hover {
+  background-color: #050A33;
+  transform: translateY(-2px);
+}
+
+input, select {
+  border: 1px solid var(--main-color);
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 1rem;
+  width: 100%;
+  background-color: #fff;
+  transition: 0.2s ease;
+}
+
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px rgba(129, 7, 7, 0.1);
+}
+
+/* 폼 컨테이너 - padding 줄임 */
+
+#personalForm, #groupForm, #requestForm, #qrGenerateForm, #statusCheckForm {
+  background: #fff;
+  padding: 1.2rem 1.5rem;
+  margin: 0.8rem 0;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+  width: 100%;
+  max-width: var(--form-max-width);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+/* 라벨-입력 필드 세트 */
+#personalForm > div,
+#groupForm > div,
+#requestForm > div,
+#qrGenrateForm > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* 결과 영역 - padding 줄임 */
+#listofStudents, #listBox {
+  margin-top: 0.5rem;     /* ↓ 기존 2rem */
+  padding: 0.5rem 1.2rem;   /* ↓ 기존 1.5rem */
+  background: #fff;
+  border: 2px solid var(--main-color);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  white-space: pre-wrap;
+  width: 100%;
+  max-width: var(--form-max-width);
+  font-size: 0.95rem;
+}
+
+#result{
+  display:flex;
+  margin-top: 0.5rem;     /* ↓ 기존 2rem */
+  padding: 0.5rem 1.2rem;   /* ↓ 기존 1.5rem */
+  background: #fff;
+  border: 2px solid var(--main-color);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  white-space: pre-wrap;
+  width: 100%;
+  max-width: var(--form-max-width);
+  font-size: 0.95rem;
+}
+
+/* 반응형 대응 */
+@media (max-width: 768px) {
+  body > div {
+    padding: 2rem 1rem;
+  }
+
+  button {
+    max-width: 100%;
+  }
+
+  h1 {
+    font-size: clamp(1.4rem, 6vw, 2rem);
+  }
+}
+
+@media (max-width: 480px) {
+  input, select {
+    font-size: 0.95rem;
+  }
+
+  #result {
+    font-size: 0.9rem;
+  }
+}
+
+
+.footer {
+  text-align: center;
+  padding: 30px 0;
+  margin-top: 15px;
+  color: #666;
+  font-size: 0.5rem;
+  border-top: 1px solid var(--light-gray);
+}
+/* ==========================================
+   X 버튼 길이 늘어남 방지 및 가로 정렬 복구
+   ========================================== */
+
+/* 1. 부모 div를 세로(column)에서 가로(row) 배치로 전환 */
+#requestForm > div.student-input-row,
+.student-input-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+/* 2. 전역 button의 width: 100% 및 margin 덮어쓰기 */
+button.remove-student-btn,
+.remove-student-btn {
+  width: 40px !important;
+  height: 40px !important;
+  max-width: 40px !important; /* 전역 max-width: 600px 해제 */
+  flex-shrink: 0 !important;  /* 너비가 비율에 맞춰 늘어나는 것 강제 차단 */
+  margin: 0 !important;       /* 전역 margin: 1rem 0 해제 */
+  padding: 0 !important;
+  background: #e5534b !important;
+  border-radius: 6px;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+}
