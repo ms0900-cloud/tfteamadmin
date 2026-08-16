@@ -56,16 +56,24 @@ async function setupPushNotification() {
       console.warn("FCM 토큰을 생성할 수 없습니다.");
     }
 
-    // 4. 포그라운드(웹 화면이 켜져 있을 때) 알림 수신
+    // 4. 포그라운드(웹 화면이 켜져 있을 때) 알림 수신 수정 로직
     onMessage(messaging, (payload) => {
       console.log("포그라운드 메시지 수신:", payload);
       const title = payload.notification?.title || payload.data?.title || "온라인 출입 시스템";
       const body = payload.notification?.body || payload.data?.body || "새로운 알림이 도착했습니다.";
       
       if (Notification.permission === "granted") {
-        new Notification(title, { body, icon: "/image/favicon.png" });
+        try {
+          new Notification(title, { 
+            body: body, 
+            icon: "/image/favicon.png"
+          });
+        } catch (e) {
+          // 모바일/특수 환경 Fallback
+          alert(`[${title}]\n${body}`);
+        }
       } else {
-        alert(`${title}\n\n${body}`);
+        alert(`[${title}]\n${body}`);
       }
     });
 
@@ -144,6 +152,8 @@ function showLoginModal() {
         modal.style.display = 'none';
         content.style.display = 'block';
         searchStudents();
+        // 로그인 완료 후 선생님 알림 수신 리스너 재생성
+        setupTeacherRequestNotification();
       } else {
         alert('이메일 또는 비밀번호가 잘못되었습니다.');
       }
@@ -473,7 +483,7 @@ async function updateStudentApprovals() {
   }
 }
 
-// ==================== 선생님 요청 실시간 알림 ====================
+// ==================== 선생님 요청 실시간 알림 수정 ====================
 const notifiedRequests = new Set();
 
 function setupTeacherRequestNotification() {
@@ -491,9 +501,10 @@ function setupTeacherRequestNotification() {
           const data = dates[date];
           const requestKey = `${classKey}_${studentId}_${date}`;
 
-          if (data && data.accept === false && data.teacher === currentTeacherName) {
+          // 교사 로그인 정보가 설정되어 있고, 본인 담당 학생의 대기중(accept===false) 데이터인 경우에만 발송
+          if (data && data.accept === false && currentTeacherName && data.teacher === currentTeacherName) {
             if (!notifiedRequests.has(requestKey)) {
-              showRequestNotification(studentId, data.name || "학생", data.reason || "사유 없음");
+              showRequestNotification(studentId, data.name || "학생", data.reason || "사유 없음", date);
               notifiedRequests.add(requestKey);
             }
           }
@@ -503,17 +514,28 @@ function setupTeacherRequestNotification() {
   });
 }
 
-function showRequestNotification(studentId, studentName, reason) {
-  if (!("Notification" in window)) {
-    alert(`[새 출입 요청]\n학생: ${studentName}\n학번: ${studentId}\n사유: ${reason}`);
+function showRequestNotification(studentId, studentName, reason, date) {
+  const title = "🔔 새로운 출입 요청";
+  const body = `[${date}] ${studentName}(${studentId})\n사유: ${reason}`;
+
+  if (!("Notification" in window) || Notification.permission !== "granted") {
+    alert(`${title}\n\n${body}`);
     return;
   }
 
-  if (Notification.permission === "granted") {
-    new Notification("🔔 새로운 출입 요청", {
-      body: `${studentName} (${studentId}) 학생의 요청이 있습니다.\n사유: ${reason}`,
-      icon: "/image/favicon.png"
+  try {
+    const notification = new Notification(title, {
+      body: body,
+      icon: "/image/favicon.png",
+      tag: `${studentId}-${date}` // 동일 요청에 대한 중복 노출 방지
     });
+
+    notification.onclick = function() {
+      window.focus();
+      this.close();
+    };
+  } catch (e) {
+    alert(`${title}\n\n${body}`);
   }
 }
 
