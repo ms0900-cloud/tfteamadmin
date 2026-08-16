@@ -139,29 +139,36 @@ function setupStudentPage() {
 
     const idElems = document.querySelectorAll('.multi-studentId');
     const nameElems = document.querySelectorAll('.multi-studentName');
+    
+    // 1. 개별 입력된 날짜 수집
     const dateElems = Array.from(document.querySelectorAll('.multi-studentDate'));
-    let dateValues = dateElems.map(el => el.value.trim()).filter(Boolean);
+    let dateSet = new Set(dateElems.map(el => el.value.trim()).filter(Boolean));
+
+    // 2. 만약 개별 날짜가 없고 기간(범위)이 설정되어 있다면 기간 자동 계산
     const rangeStart = document.getElementById('rangeStartDate')?.value?.trim();
     const rangeEnd = document.getElementById('rangeEndDate')?.value?.trim();
 
-    if (dateValues.length === 0 && rangeStart && rangeEnd) {
+    if (dateSet.size === 0 && rangeStart && rangeEnd) {
       const startDate = new Date(rangeStart);
       const endDate = new Date(rangeEnd);
       if (!isNaN(startDate) && !isNaN(endDate) && startDate <= endDate) {
-        const generatedDates = [];
         let current = new Date(startDate);
         while (current <= endDate) {
-          generatedDates.push(current.toISOString().slice(0, 10));
+          dateSet.add(current.toISOString().slice(0, 10));
           current.setDate(current.getDate() + 1);
         }
-        dateValues = generatedDates;
       }
     }
 
-    const isMulti = idElems.length > 0 && nameElems.length > 0;
+    const dateValues = Array.from(dateSet);
 
     if (!reason || !teacher) {
       alert('사유와 담당 교사를 선택해주세요.');
+      return;
+    }
+
+    if (dateValues.length === 0) {
+      alert('사용하고자 하는 날짜를 입력해주세요.');
       return;
     }
 
@@ -169,7 +176,7 @@ function setupStudentPage() {
     const errors = [];
 
     try {
-      if (isMulti) {
+      if (idElems.length > 0 && nameElems.length > 0) {
         for (let i = 0; i < idElems.length; i++) {
           const sid = idElems[i].value.trim();
           const sname = (nameElems[i] && nameElems[i].value.trim()) || '';
@@ -181,11 +188,6 @@ function setupStudentPage() {
           const gc = parseGradeClass(sid);
           if (!gc) {
             errors.push(`${sid}: 잘못된 학번 형식`);
-            continue;
-          }
-
-          if (dateValues.length === 0) {
-            errors.push(`${sid}: 날짜를 한 개 이상 추가해주세요.`);
             continue;
           }
 
@@ -208,10 +210,9 @@ function setupStudentPage() {
       } else {
         const studentId = document.getElementById("studentId")?.value?.trim();
         const studentName = document.getElementById("studentName")?.value?.trim();
-        const studentDate = document.getElementById("studentDate")?.value?.trim();
 
-        if (!studentId || !studentName || !studentDate) {
-          alert('모든 필드를 입력해주세요! (학번/이름/날짜/사유/담당교사)');
+        if (!studentId || !studentName) {
+          alert('학번과 이름을 입력해주세요.');
           return;
         }
 
@@ -221,19 +222,21 @@ function setupStudentPage() {
           return;
         }
 
-        const dbPath = `class/${gc.grade}-${gc.classNum}/${studentId}/${studentDate}`;
-        const dbRef = ref(db, dbPath);
-        const studentData = {
-          name: studentName,
-          reason: reason,
-          accept: false,
-          enterTime: "없음",
-          leaveTime: "없음",
-          realEnter: false,
-          teacher: teacher
-        };
-        await set(dbRef, studentData);
-        successes = 1;
+        for (const sdate of dateValues) {
+          const dbPath = `class/${gc.grade}-${gc.classNum}/${studentId}/${sdate}`;
+          const dbRef = ref(db, dbPath);
+          const studentData = {
+            name: studentName,
+            reason: reason,
+            accept: false,
+            enterTime: "없음",
+            leaveTime: "없음",
+            realEnter: false,
+            teacher: teacher
+          };
+          await set(dbRef, studentData);
+          successes++;
+        }
       }
 
       let msg = '';
@@ -319,7 +322,7 @@ function setupStudentPage() {
   displayStudentInfo();
 }
 
-// ==================== 검색 및 데이터 표시 (교사 선택 필터링 적용) ====================
+// ==================== 검색 및 데이터 표시 ====================
 async function searchStudents() {
   const selectedGrade = document.getElementById('studentDefGrade')?.value;
   const selectedEnter = document.getElementById('studentDefEnter')?.value;
@@ -358,7 +361,6 @@ async function searchStudents() {
 
           const studentData = dateEntries[currentDate];
 
-          // 📌 신청 시 등록한 교사 이름과 현재 선택/로그인한 교사가 다르면 필터링
           if (studentData.teacher !== currentTeacherName) continue;
           if (selectedEnter && String(studentData.accept) !== selectedEnter) continue;
           if (selectedRequest === 'used' && !studentData.realEnter) continue;
@@ -640,7 +642,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   setupEntryExitButtons();
   
-  if (document.getElementById('studentInfo') || document.getElementById('uploadStudentData')) {
+  if (document.getElementById('studentInfo') || document.getElementById('uploadStudentData') || document.getElementById('requestForm')) {
     setupStudentPage();
   }
   
