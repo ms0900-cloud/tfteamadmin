@@ -46,7 +46,7 @@
       <!-- 기간 선택 영역 -->
       <div id="dateRangeContainer" style="margin-top: 12px; padding: 12px; background: #ffffff; border: 1px dashed #ccc; border-radius: 6px;">
         <label style="display: block; font-weight: bold; margin-bottom: 8px; font-size: 0.9em; color: #555;">
-          📌 기간 설정으로 날짜 일괄 추가
+          📌 기간 설정으로 날짜 일괄 추가 (선택사항)
         </label>
         <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
           <input type="date" id="rangeStartDate" style="flex: 1; min-width: 130px;" />
@@ -194,7 +194,16 @@
       }
     }
 
-    document.addEventListener('DOMContentLoaded', loadTeacherOptions);
+    document.addEventListener('DOMContentLoaded', () => {
+      loadTeacherOptions();
+
+      // 기본 날짜 오늘로 설정
+      const today = new Date().toISOString().slice(0, 10);
+      const defaultDateInput = document.querySelector('.multi-studentDate');
+      if (defaultDateInput && !defaultDateInput.value) {
+        defaultDateInput.value = today;
+      }
+    });
 
     function parseGradeClass(id) {
       if (!id) return null;
@@ -388,6 +397,6 @@
     }
   </script>
 
-  <script type="module" src="./app.js"></script> 
+  <script type="module" src="./script/app.js"></script> 
 </body>
 </html>
