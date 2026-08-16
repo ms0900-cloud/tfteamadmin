@@ -248,13 +248,13 @@
         if (data.accept === true) {
           resultBox.innerHTML = renderStatusHtml("승인 완료", "#2e7d32");
         } else if (data.accept === false) {
-          resultBox.innerHTML = renderStatusHtml("승인 거부", "#ff4c4c");
+          resultBox.innerHTML = renderStatusHtml("신청기록이 없음", "#ff4c4c");
         } else {
           resultBox.innerHTML = renderStatusHtml("승인 대기중", "#fbc02d");
         }
       } catch (error) {
         console.error("조회 중 오류:", error);
-        resultBox.innerHTML = renderStatusHtml("신청 기록 없음", "#ff4c4c");
+        resultBox.innerHTML = renderStatusHtml("1", "#ff4c4c");
       }
     }
 
