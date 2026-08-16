@@ -27,11 +27,9 @@ async function setupPushNotification() {
       return;
     }
 
-    // 1. Service Worker 수동 등록 및 준비 대기 (Scope 명시)
     const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/" });
     await navigator.serviceWorker.ready;
 
-    // 2. Messaging 초기화 및 알림 권한 요청
     messaging = getMessaging(app);
     const permission = await Notification.requestPermission();
     if (permission !== "granted") {
@@ -39,7 +37,6 @@ async function setupPushNotification() {
       return;
     }
 
-    // 3. FCM Token 생성 및 Firebase DB 저장
     const token = await getToken(messaging, {
       vapidKey: "BJmlzsJ4LAJnis66gze-sYmtlT4J74ft-VnykoLCVxP3xwSMpC4cNyEmVY1Lxegni9LlQGfEqnlpLhNhWZL5xoA",
       serviceWorkerRegistration: registration
@@ -52,33 +49,35 @@ async function setupPushNotification() {
         token: token,
         createdAt: new Date().toISOString()
       });
-    } else {
-      console.warn("FCM 토큰을 생성할 수 없습니다.");
     }
 
-    // 4. 포그라운드(웹 화면이 켜져 있을 때) 알림 수신 수정 로직
+    // 포그라운드 메시지 수신
     onMessage(messaging, (payload) => {
       console.log("포그라운드 메시지 수신:", payload);
       const title = payload.notification?.title || payload.data?.title || "온라인 출입 시스템";
       const body = payload.notification?.body || payload.data?.body || "새로운 알림이 도착했습니다.";
       
-      if (Notification.permission === "granted") {
-        try {
-          new Notification(title, { 
-            body: body, 
-            icon: "/image/favicon.png"
-          });
-        } catch (e) {
-          // 모바일/특수 환경 Fallback
-          alert(`[${title}]\n${body}`);
-        }
-      } else {
-        alert(`[${title}]\n${body}`);
-      }
+      showNotification(title, body);
     });
 
   } catch (error) {
     console.error("푸시 알림 설정 오류:", error);
+  }
+}
+
+// 브라우저 포그라운드/알림 출력 공통 함수
+function showNotification(title, body) {
+  if ("Notification" in window && Notification.permission === "granted") {
+    try {
+      new Notification(title, { 
+        body: body, 
+        icon: "/image/favicon.png"
+      });
+    } catch (e) {
+      alert(`[${title}]\n${body}`);
+    }
+  } else {
+    alert(`[${title}]\n${body}`);
   }
 }
 
@@ -152,8 +151,6 @@ function showLoginModal() {
         modal.style.display = 'none';
         content.style.display = 'block';
         searchStudents();
-        // 로그인 완료 후 선생님 알림 수신 리스너 재생성
-        setupTeacherRequestNotification();
       } else {
         alert('이메일 또는 비밀번호가 잘못되었습니다.');
       }
@@ -161,7 +158,7 @@ function showLoginModal() {
   }
 }
 
-// ==================== 학생 페이지 기능 ====================
+// ==================== 학생 페이지 & 승인 알림 수신 ====================
 function setupStudentPage() {
   async function uploadStudentData() {
     const reason = document.getElementById("studentReason")?.value?.trim();
@@ -258,7 +255,7 @@ function setupStudentPage() {
             reason: reason,
             accept: false,
             enterTime: "없음",
-            leaveTime: "없음",
+            leaveTime: "null",
             realEnter: false,
             teacher: teacher
           };
@@ -329,7 +326,7 @@ function setupStudentPage() {
             사유(Lý do): ${reason}<br>
             지도 교사(GV chủ nhiệm): ${teacher}<br>
             출입 여부(Ra vào): ${accept}<br>
-            사용 여부(Đã sử dụng): ${realEnter}
+            사용 여부(Đã 사용): ${realEnter}
           `;
         } else {
           studentInfoElem.innerHTML = "해당 날짜에 대한 데이터가 없습니다.(KHÔNG CÓ DỮ LIỆU CHO NGÀY NÀY.)";
@@ -337,6 +334,9 @@ function setupStudentPage() {
       }).catch((error) => {
         studentInfoElem.innerHTML = `데이터 조회 중 오류가 발생했습니다(ĐÃ XẢY RA LỖI KHI TRUY XUẤT DỮ LIỆU): ${error}`;
       });
+      
+      // 승인 상태 변경 실시간 대기 함수 실행
+      setupStudentApprovalNotification(gc.grade, gc.classNum, id, date);
     } else {
       studentInfoElem.innerHTML = "정보가 없습니다.(KHÔNG CÓ THÔNG TIN.)";
     }
@@ -351,7 +351,35 @@ function setupStudentPage() {
   displayStudentInfo();
 }
 
-// ==================== 검색 및 데이터 표시 ====================
+// ==================== [핵심] 학생 - 선생님 승인 실시간 알림 ====================
+let hasNotifiedStudent = false;
+
+function setupStudentApprovalNotification(grade, classNum, studentId, date) {
+  const studentRef = ref(db, `class/${grade}-${classNum}/${studentId}/${date}`);
+  
+  onValue(studentRef, (snapshot) => {
+    if (!snapshot.exists()) return;
+    const data = snapshot.val();
+
+    // 선생님이 출입을 승인(accept: true)했을 때 알림 처리
+    if (data.accept === true && !hasNotifiedStudent) {
+      hasNotifiedStudent = true; // 중복 알림 방지
+      
+      const title = "🎉 출입 승인 완료!";
+      const body = `${data.name || '학생'}님의 [${date}] 출입 신청이 선생님에 의해 승인되었습니다.`;
+
+      showNotification(title, body);
+
+      // UI 화면 실시간 갱신
+      const circleCheck = document.getElementById('circleCheck');
+      if (circleCheck && data.realEnter === false) {
+        circleCheck.style.backgroundColor = "green";
+      }
+    }
+  });
+}
+
+// ==================== 검색 및 선생님 관리 기능 ====================
 async function searchStudents() {
   const selectedGrade = document.getElementById('studentDefGrade')?.value;
   const selectedEnter = document.getElementById('studentDefEnter')?.value;
@@ -456,6 +484,7 @@ function toggleAllCheckboxes() {
   });
 }
 
+// 선생님이 승인 버튼 누를 시 실행되는 함수
 async function updateStudentApprovals() {
   const selectedStudents = document.querySelectorAll('.student-check:checked');
   if (selectedStudents.length === 0) {
@@ -471,71 +500,16 @@ async function updateStudentApprovals() {
       const studentId = studentItem.dataset.id;
       const date = studentItem.dataset.date;
       
+      // DB 내 승인 상태를 true로 업데이트 -> 해당 학생 단말기에서 실시간 감지하여 푸시 알림 발송
       updates[`class/${classKey}/${studentId}/${date}/accept`] = true;
     });
 
     await update(ref(db), updates);
-    alert(`${selectedStudents.length}명의 학생 출입이 허가되었습니다.`);
+    alert(`${selectedStudents.length}명의 학생 출입이 허가 및 승인되었습니다.`);
     searchStudents();
   } catch (error) {
     console.error('업데이트 오류:', error);
     alert('학생 정보 업데이트 중 오류가 발생했습니다.');
-  }
-}
-
-// ==================== 선생님 요청 실시간 알림 수정 ====================
-const notifiedRequests = new Set();
-
-function setupTeacherRequestNotification() {
-  if (!document.getElementById("listofStudents")) return;
-
-  onValue(ref(db, "class"), (snapshot) => {
-    if (!snapshot.exists()) return;
-    const classes = snapshot.val();
-
-    for (const classKey in classes) {
-      const students = classes[classKey];
-      for (const studentId in students) {
-        const dates = students[studentId];
-        for (const date in dates) {
-          const data = dates[date];
-          const requestKey = `${classKey}_${studentId}_${date}`;
-
-          // 교사 로그인 정보가 설정되어 있고, 본인 담당 학생의 대기중(accept===false) 데이터인 경우에만 발송
-          if (data && data.accept === false && currentTeacherName && data.teacher === currentTeacherName) {
-            if (!notifiedRequests.has(requestKey)) {
-              showRequestNotification(studentId, data.name || "학생", data.reason || "사유 없음", date);
-              notifiedRequests.add(requestKey);
-            }
-          }
-        }
-      }
-    }
-  });
-}
-
-function showRequestNotification(studentId, studentName, reason, date) {
-  const title = "🔔 새로운 출입 요청";
-  const body = `[${date}] ${studentName}(${studentId})\n사유: ${reason}`;
-
-  if (!("Notification" in window) || Notification.permission !== "granted") {
-    alert(`${title}\n\n${body}`);
-    return;
-  }
-
-  try {
-    const notification = new Notification(title, {
-      body: body,
-      icon: "/image/favicon.png",
-      tag: `${studentId}-${date}` // 동일 요청에 대한 중복 노출 방지
-    });
-
-    notification.onclick = function() {
-      window.focus();
-      this.close();
-    };
-  } catch (e) {
-    alert(`${title}\n\n${body}`);
   }
 }
 
@@ -593,7 +567,7 @@ function setupEntryExitButtons() {
   });
 }
 
-// ==================== 교사 목록 동적 관리 ====================
+// ==================== 교사 목록 관리 ====================
 async function loadTeacherList() {
   const teacherSelect = document.getElementById('studentTeacher');
   const checkTeacherSelect = document.getElementById('checkStudentTeacher');
@@ -647,21 +621,6 @@ async function loadTeacherList() {
   }
 }
 
-window.addTeacher = async function(key, name, email = '', password = '') {
-  if (!key || !name) {
-    alert('키와 이름을 입력해주세요.');
-    return;
-  }
-  try {
-    await set(ref(db, `teacher/${key}`), { name, email, password });
-    await loadTeacherList();
-    alert(`${name} 선생님이 추가되었습니다.`);
-  } catch (e) {
-    console.error('교사 추가 오류:', e);
-    alert('교사 추가 중 오류가 발생했습니다.');
-  }
-};
-
 function setupPageNavigation() {
   const pages = [
     { id: 'go-student-btn', url: 'student.html' },
@@ -677,7 +636,6 @@ function setupPageNavigation() {
 
 // ==================== 앱 초기화 ====================
 document.addEventListener("DOMContentLoaded", () => {
-  setupTeacherRequestNotification();
   if (document.getElementById('studentTeacher') || document.getElementById('checkStudentTeacher')) {
     loadTeacherList();
   }
