@@ -127,7 +127,7 @@
   <!-- 파이어베이스 모듈 스크립트 연결 -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-    import { getDatabase, ref, get } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+    import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyBWVZERDb9xbfqCzG3bZvRIciCslbhGTD4",
@@ -194,37 +194,27 @@
       }
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      loadTeacherOptions();
-
-      // 기본 날짜 오늘로 설정
-      const today = new Date().toISOString().slice(0, 10);
-      const defaultDateInput = document.querySelector('.multi-studentDate');
-      if (defaultDateInput && !defaultDateInput.value) {
-        defaultDateInput.value = today;
-      }
-    });
-
     function parseGradeClass(id) {
       if (!id) return null;
-      const idStr = String(id);
+      const idStr = String(id).trim();
       let grade, classNum;
-      if (idStr.length === 5) {
-        grade = idStr.slice(0, 2);
-        classNum = idStr.slice(2, 3);
-      } else {
-        grade = idStr.slice(0, 1);
-        classNum = idStr.slice(1, 2);
+      if (idStr.length >= 4) {
+        if (idStr.length === 5) {
+          grade = idStr.slice(0, 2);
+          classNum = idStr.slice(2, 3);
+        } else {
+          grade = idStr.slice(0, 1);
+          classNum = idStr.slice(1, 2);
+        }
+        return { grade, classNum };
       }
-      return { grade, classNum };
+      return { grade: "1", classNum: "1" }; // 형식이 안 맞아도 오류 방지용 기본값
     }
 
-    // 승인 상태만 크고 색상을 다르게 표현하는 결과 함수
     function renderStatusHtml(statusText, color) {
       return `<h1 style="color: ${color}; font-size: 2rem; font-weight: bold; margin: 0;">${statusText}</h1>`;
     }
 
-    // 승인 여부 실제 DB 확인 함수
     async function checkApprovalStatus() {
       const studentId = document.getElementById("checkStudentId")?.value.trim();
       const studentDate = document.getElementById("checkStudentDate")?.value;
@@ -239,25 +229,17 @@
       }
 
       const gc = parseGradeClass(studentId);
-
-      if (!gc) {
-        resultBox.innerHTML = renderStatusHtml("신청 기록 없음", "#ff4c4c");
-        return;
-      }
-
       const dbPath = `class/${gc.grade}-${gc.classNum}/${studentId}/${studentDate}`;
       const dbRef = ref(db, dbPath);
 
       try {
         const snapshot = await get(dbRef);
-
         if (!snapshot.exists()) {
           resultBox.innerHTML = renderStatusHtml("신청 기록 없음", "#ff4c4c");
           return;
         }
 
         const data = snapshot.val();
-
         if (data.teacher !== selectedTeacher) {
           resultBox.innerHTML = renderStatusHtml("신청 기록 없음", "#ff4c4c");
           return;
@@ -271,15 +253,83 @@
           resultBox.innerHTML = renderStatusHtml("승인 대기중", "#fbc02d");
         }
       } catch (error) {
+        console.error("조회 중 오류:", error);
         resultBox.innerHTML = renderStatusHtml("신청 기록 없음", "#ff4c4c");
       }
     }
 
-    document.getElementById("doCheckBtn")?.addEventListener("click", checkApprovalStatus);
+    // 출입 요청 클릭 처리
+    async function handleUploadStudentData() {
+      console.log("요청하기 버튼 클릭됨");
+
+      const studentEntries = document.querySelectorAll("#studentList .student-entry");
+      const students = [];
+      studentEntries.forEach(entry => {
+        const id = entry.querySelector(".multi-studentId")?.value.trim();
+        const name = entry.querySelector(".multi-studentName")?.value.trim();
+        if (id && name) students.push({ id, name });
+      });
+
+      const dateInputs = document.querySelectorAll("#dateList .multi-studentDate");
+      const dates = Array.from(dateInputs)
+        .map(input => input.value)
+        .filter(val => val !== "");
+
+      const reason = document.getElementById("studentReason")?.value.trim();
+      const teacher = document.getElementById("studentTeacher")?.value;
+
+      if (students.length === 0) {
+        alert("학번과 이름을 올바르게 입력해주세요.");
+        return;
+      }
+      if (dates.length === 0) {
+        alert("날짜를 선택해주세요.");
+        return;
+      }
+      if (!teacher) {
+        alert("담당 교사를 선택해주세요.");
+        return;
+      }
+
+      try {
+        for (const student of students) {
+          const gc = parseGradeClass(student.id);
+
+          for (const date of dates) {
+            const dbPath = `class/${gc.grade}-${gc.classNum}/${student.id}/${date}`;
+            await set(ref(db, dbPath), {
+              id: student.id,
+              name: student.name,
+              reason: reason || "",
+              teacher: teacher,
+              accept: null
+            });
+          }
+        }
+        alert("출입 요청이 성공적으로 제출되었습니다.");
+      } catch (error) {
+        console.error("Firebase 저장 오류 발생:", error);
+        alert("요청 처리 실패: " + error.message);
+      }
+    }
+
+    // DOM 로드 후 이벤트 리스너 바인딩
+    window.addEventListener("DOMContentLoaded", () => {
+      loadTeacherOptions();
+
+      const today = new Date().toISOString().slice(0, 10);
+      const defaultDateInput = document.querySelector('.multi-studentDate');
+      if (defaultDateInput && !defaultDateInput.value) {
+        defaultDateInput.value = today;
+      }
+
+      document.getElementById("doCheckBtn")?.addEventListener("click", checkApprovalStatus);
+      document.getElementById("uploadStudentData")?.addEventListener("click", handleUploadStudentData);
+    });
   </script>
 
   <script>
-    // 탭 이동 관련 토글 스크립트
+    // 탭 이동 이벤트
     document.getElementById("requestPageBtn").addEventListener("click", () => {
       document.getElementById("requestForm").style.display = "block";
       document.getElementById("qrGenerateForm").style.display = "none";
@@ -396,7 +446,5 @@
       });
     }
   </script>
-
-  <script type="module" src="./script/app.js"></script> 
 </body>
 </html>
