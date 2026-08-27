@@ -5,7 +5,7 @@ import { getMessaging, getToken, onMessage, isSupported } from "https://www.gsta
 const firebaseConfig = {
   apiKey: "AIzaSyBWVZERDb9xbfqCzG3bZvRIciCslbhGTD4",
   authDomain: "entry-4a14b.firebaseapp.com",
-  databaseURL: "https://tfteamdata-default-rtdb.firebaseio.com/",
+  databaseURL: "https://onlineschoolentry-default-rtdb.firebaseio.com/",
   projectId: "entry-4a14b",
   storageBucket: "entry-4a14b.firebasestorage.app",
   messagingSenderId: "262491101728",
