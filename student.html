@@ -12,9 +12,11 @@
 <body>
 <div>
     <h1>STUDENT | 학생</h1>
-    <button id="requestPageBtn">출입 요청</button>
-    <button id="qrGenerateFormBtn">QR 생성</button>
-    <button id="statusCheckBtn">신청/승인 여부 조회</button>
+    <div class="menu-buttons">
+      <button id="requestPageBtn">출입 요청</button>
+      <button id="qrPageBtn">QR 생성</button>
+      <button id="statusPageBtn">신청/승인 여부 조회</button>
+    </div>
 
     <!-- 1. 출입 요청 폼 -->
     <div id="requestForm" style="display: none;">
@@ -84,8 +86,8 @@
       <input type="date" id="qrStudentDate" placeholder="날짜 입력" />
 
       <br/>
-      <button type="button" onclick="generateQRCode()">생성</button>
-      <div id="qrcode"></div>
+      <button type="button" id="generateQrBtn" style="margin-top: 10px;">생성</button>
+      <div id="qrcode" style="margin-top: 15px;"></div>
     </div>
 
     <!-- 3. 신청 / 승인 여부 조회 폼 -->
