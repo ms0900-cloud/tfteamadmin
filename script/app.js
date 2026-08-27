@@ -1,5 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
 import { getDatabase, ref, get, update, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+import { getMessaging, getToken, onMessage, isSupported } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-messaging.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBWVZERDb9xbfqCzG3bZvRIciCslbhGTD4",
@@ -15,25 +16,89 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
+// ==================== Chrome 푸시 알림 설정 ====================
+let messaging;
+
+async function setupPushNotification() {
+  try {
+    const supported = await isSupported();
+    if (!supported) {
+      console.log("이 브라우저는 푸시 알림을 지원하지 않습니다.");
+      return;
+    }
+
+    const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/" });
+    await navigator.serviceWorker.ready;
+
+    messaging = getMessaging(app);
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      console.log("알림 권한이 허용되지 않았습니다.");
+      return;
+    }
+
+    const token = await getToken(messaging, {
+      vapidKey: "BJmlzsJ4LAJnis66gze-sYmtlT4J74ft-VnykoLCVxP3xwSMpC4cNyEmVY1Lxegni9LlQGfEqnlpLhNhWZL5xoA",
+      serviceWorkerRegistration: registration
+    });
+
+    if (token) {
+      console.log("FCM Token 발급 성공:", token);
+      const safeToken = token.replace(/[.#$\[\]]/g, ""); 
+      await set(ref(db, `fcmTokens/${safeToken}`), {
+        token: token,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    // 포그라운드 메시지 수신
+    onMessage(messaging, (payload) => {
+      console.log("포그라운드 메시지 수신:", payload);
+      const title = payload.notification?.title || payload.data?.title || "온라인 출입 시스템";
+      const body = payload.notification?.body || payload.data?.body || "새로운 알림이 도착했습니다.";
+      
+      showNotification(title, body);
+    });
+
+  } catch (error) {
+    console.error("푸시 알림 설정 오류:", error);
+  }
+}
+
+// 브라우저 포그라운드/알림 출력 공통 함수
+function showNotification(title, body) {
+  if ("Notification" in window && Notification.permission === "granted") {
+    try {
+      new Notification(title, { 
+        body: body, 
+        icon: "/image/favicon.png"
+      });
+    } catch (e) {
+      alert(`[${title}]\n${body}`);
+    }
+  } else {
+    alert(`[${title}]\n${body}`);
+  }
+}
+
+setupPushNotification();
+
 // ==================== 공통 및 인증 기능 ====================
 let isLoggedIn = false;
 let currentTeacherName = '';
 
 function parseGradeClass(id) {
   if (!id) return null;
-  const idStr = String(id).trim();
+  const idStr = String(id);
   let grade, classNum;
-  if (idStr.length >= 4) {
-    if (idStr.length === 5) {
-      grade = idStr.slice(0, 2);
-      classNum = idStr.slice(2, 3);
-    } else {
-      grade = idStr.slice(0, 1);
-      classNum = idStr.slice(1, 2);
-    }
-    return { grade, classNum };
+  if (idStr.length === 5) {
+    grade = idStr.slice(0, 2);
+    classNum = idStr.slice(2, 3);
+  } else {
+    grade = idStr.slice(0, 1);
+    classNum = idStr.slice(1, 2);
   }
-  return { grade: "1", classNum: "1" };
+  return { grade, classNum };
 }
 
 async function teacherLogin(email, password) {
@@ -93,118 +158,8 @@ function showLoginModal() {
   }
 }
 
-// ==================== 탭 메뉴 전환 ====================
-function setupNavigation() {
-  const requestForm = document.getElementById("requestForm");
-  const qrGenerateForm = document.getElementById("qrGenerateForm");
-  const statusCheckForm = document.getElementById("statusCheckForm");
-
-  function showSection(targetSection) {
-    if (requestForm) requestForm.style.display = "none";
-    if (qrGenerateForm) qrGenerateForm.style.display = "none";
-    if (statusCheckForm) statusCheckForm.style.display = "none";
-
-    if (targetSection) targetSection.style.display = "block";
-  }
-
-  document.getElementById("requestPageBtn")?.addEventListener("click", () => showSection(requestForm));
-  document.getElementById("qrPageBtn")?.addEventListener("click", () => showSection(qrGenerateForm));
-  document.getElementById("statusPageBtn")?.addEventListener("click", () => showSection(statusCheckForm));
-}
-
-// ==================== 학생 페이지 기능 ====================
+// ==================== 학생 페이지 & 승인 알림 수신 ====================
 function setupStudentPage() {
-  // 동적 인원 추가
-  document.getElementById("addStudentBtn")?.addEventListener("click", () => {
-    const studentList = document.getElementById("studentList");
-    if (!studentList) return;
-    const entry = document.createElement("div");
-    entry.className = "student-entry";
-    entry.style.cssText = "display: flex; gap: 10px; margin-bottom: 5px;";
-    entry.innerHTML = `
-      <input type="text" class="multi-studentId" placeholder="학번 입력" style="flex: 1;" />
-      <input type="text" class="multi-studentName" placeholder="이름 입력" style="flex: 1;" />
-    `;
-    studentList.appendChild(entry);
-  });
-
-  // 동적 날짜 추가
-  document.getElementById("addDateBtn")?.addEventListener("click", () => {
-    const dateList = document.getElementById("dateList");
-    if (!dateList) return;
-    const entry = document.createElement("div");
-    entry.className = "date-entry";
-    entry.style.cssText = "margin-bottom: 5px;";
-    entry.innerHTML = `<input type="date" class="multi-studentDate" />`;
-    dateList.appendChild(entry);
-  });
-
-  // 날짜 범위 추가
-  document.getElementById("addDateRangeBtn")?.addEventListener("click", () => {
-    const startDateVal = document.getElementById("rangeStartDate")?.value;
-    const endDateVal = document.getElementById("rangeEndDate")?.value;
-
-    if (!startDateVal || !endDateVal) {
-      alert("시작 날짜와 종료 날짜를 모두 선택해주세요.");
-      return;
-    }
-
-    const start = new Date(startDateVal);
-    const end = new Date(endDateVal);
-
-    if (start > end) {
-      alert("시작 날짜는 종료 날짜보다 이전이어야 합니다.");
-      return;
-    }
-
-    const dateList = document.getElementById("dateList");
-    if (!dateList) return;
-    const curr = new Date(start);
-
-    while (curr <= end) {
-      const dateString = curr.toISOString().split("T")[0];
-      const entry = document.createElement("div");
-      entry.className = "date-entry";
-      entry.style.cssText = "margin-bottom: 5px;";
-      entry.innerHTML = `<input type="date" class="multi-studentDate" value="${dateString}" />`;
-      dateList.appendChild(entry);
-
-      curr.setDate(curr.getDate() + 1);
-    }
-  });
-
-  // QR 생성 버튼 이벤트
-  document.getElementById("generateQrBtn")?.addEventListener("click", () => {
-    const studentId = document.getElementById("qrStudentId")?.value.trim();
-    const studentName = document.getElementById("qrStudentName")?.value.trim();
-    const studentDate = document.getElementById("qrStudentDate")?.value;
-    const qrContainer = document.getElementById("qrcode");
-
-    if (!qrContainer) return;
-    qrContainer.innerHTML = "";
-
-    if (!studentId || !studentName || !studentDate) {
-      alert("학번, 이름, 날짜를 모두 입력해주세요.");
-      return;
-    }
-
-    if (typeof QRCode !== 'undefined') {
-      const qrData = JSON.stringify({
-        id: studentId,
-        name: studentName,
-        date: studentDate
-      });
-      new QRCode(qrContainer, {
-        text: qrData,
-        width: 160,
-        height: 160
-      });
-    } else {
-      alert("QR 코드 라이브러리를 불러오지 못했습니다.");
-    }
-  });
-
-  // 출입 요청 데이터 업로드
   async function uploadStudentData() {
     const reason = document.getElementById("studentReason")?.value?.trim();
     const teacher = document.getElementById("studentTeacher")?.value;
@@ -242,31 +197,11 @@ function setupStudentPage() {
       return;
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const maxLimitDate = new Date();
-    maxLimitDate.setMonth(maxLimitDate.getMonth() + 1);
-    maxLimitDate.setHours(23, 59, 59, 999);
-
-    const invalidDates = [];
-    for (const dStr of dateValues) {
-      const targetDate = new Date(dStr);
-      if (isNaN(targetDate.getTime()) || targetDate < today || targetDate > maxLimitDate) {
-        invalidDates.push(dStr);
-      }
-    }
-
-    if (invalidDates.length > 0) {
-      alert(`신청 불가능한 날짜가 포함되어 있습니다.\n(신청일로부터 1개월 이내 날짜만 신청 가능)\n\n잘못된 날짜:\n- ${invalidDates.join('\n- ')}`);
-      return;
-    }
-
     let successes = 0;
     const errors = [];
 
     try {
-      if (idElems.length > 0) {
+      if (idElems.length > 0 && nameElems.length > 0) {
         for (let i = 0; i < idElems.length; i++) {
           const sid = idElems[i].value.trim();
           const sname = (nameElems[i] && nameElems[i].value.trim()) || '';
@@ -287,16 +222,45 @@ function setupStudentPage() {
             const studentData = {
               name: sname,
               reason: reason,
-              accept: null, // 대기 상태 (null)로 설정
+              accept: false,
               enterTime: "없음",
               leaveTime: "없음",
               realEnter: false,
-              teacher: teacher,
-              timestamp: Date.now()
+              teacher: teacher
             };
             await set(dbRef, studentData);
             successes++;
           }
+        }
+      } else {
+        const studentId = document.getElementById("studentId")?.value?.trim();
+        const studentName = document.getElementById("studentName")?.value?.trim();
+
+        if (!studentId || !studentName) {
+          alert('학번과 이름을 입력해주세요.');
+          return;
+        }
+
+        const gc = parseGradeClass(studentId);
+        if (!gc) {
+          alert('잘못된 학번 형식입니다.');
+          return;
+        }
+
+        for (const sdate of dateValues) {
+          const dbPath = `class/${gc.grade}-${gc.classNum}/${studentId}/${sdate}`;
+          const dbRef = ref(db, dbPath);
+          const studentData = {
+            name: studentName,
+            reason: reason,
+            accept: false,
+            enterTime: "없음",
+            leaveTime: "null",
+            realEnter: false,
+            teacher: teacher
+          };
+          await set(dbRef, studentData);
+          successes++;
         }
       }
 
@@ -339,7 +303,7 @@ function setupStudentPage() {
           let accept = "승인 대기 중(Đang chờ phê duyệt)";
           if (data.accept === true) {
             accept = "허가됨(Đã được chấp nhận)";
-          } else if (data.accept === false) {
+          } else if (data.accept === "rejected" || data.accept === "거부됨") {
             accept = "거부됨(Đã bị từ chối)";
           }
 
@@ -362,15 +326,16 @@ function setupStudentPage() {
             사유(Lý do): ${reason}<br>
             지도 교사(GV chủ nhiệm): ${teacher}<br>
             출입 여부(Ra vào): ${accept}<br>
-            사용 여부(Đã sử dụng): ${realEnter}
+            사용 여부(Đã 사용): ${realEnter}
           `;
         } else {
           studentInfoElem.innerHTML = "해당 날짜에 대한 데이터가 없습니다.(KHÔNG CÓ DỮ LIỆU CHO NGÀY NÀY.)";
         }
       }).catch((error) => {
-        studentInfoElem.innerHTML = `데이터 조회 중 오류가 발생했습니다: ${error}`;
+        studentInfoElem.innerHTML = `데이터 조회 중 오류가 발생했습니다(ĐÃ XẢY RA LỖI KHI TRUY XUẤT DỮ LIỆU): ${error}`;
       });
       
+      // 승인 상태 변경 실시간 대기 함수 실행
       setupStudentApprovalNotification(gc.grade, gc.classNum, id, date);
     } else {
       studentInfoElem.innerHTML = "정보가 없습니다.(KHÔNG CÓ THÔNG TIN.)";
@@ -378,8 +343,16 @@ function setupStudentPage() {
   }
 
   document.getElementById("uploadStudentData")?.addEventListener("click", uploadStudentData);
+  document.getElementById("requestPageBtn")?.addEventListener("click", () => {
+    const requestForm = document.getElementById("requestForm");
+    if (requestForm) requestForm.style.display = "block";
+  });
+
   displayStudentInfo();
 }
+
+// ==================== [핵심] 학생 - 선생님 승인 실시간 알림 ====================
+let hasNotifiedStudent = false;
 
 function setupStudentApprovalNotification(grade, classNum, studentId, date) {
   const studentRef = ref(db, `class/${grade}-${classNum}/${studentId}/${date}`);
@@ -388,9 +361,20 @@ function setupStudentApprovalNotification(grade, classNum, studentId, date) {
     if (!snapshot.exists()) return;
     const data = snapshot.val();
 
-    const circleCheck = document.getElementById('circleCheck');
-    if (circleCheck && data.accept === true && data.realEnter === false) {
-      circleCheck.style.backgroundColor = "green";
+    // 선생님이 출입을 승인(accept: true)했을 때 알림 처리
+    if (data.accept === true && !hasNotifiedStudent) {
+      hasNotifiedStudent = true; // 중복 알림 방지
+      
+      const title = "🎉 출입 승인 완료!";
+      const body = `${data.name || '학생'}님의 [${date}] 출입 신청이 선생님에 의해 승인되었습니다.`;
+
+      showNotification(title, body);
+
+      // UI 화면 실시간 갱신
+      const circleCheck = document.getElementById('circleCheck');
+      if (circleCheck && data.realEnter === false) {
+        circleCheck.style.backgroundColor = "green";
+      }
     }
   });
 }
@@ -434,7 +418,7 @@ async function searchStudents() {
 
           const studentData = dateEntries[currentDate];
 
-          if (currentTeacherName && studentData.teacher !== currentTeacherName) continue;
+          if (studentData.teacher !== currentTeacherName) continue;
           if (selectedEnter && String(studentData.accept) !== selectedEnter) continue;
           if (selectedRequest === 'used' && !studentData.realEnter) continue;
           if (selectedRequest === 'unused' && studentData.realEnter) continue;
@@ -483,12 +467,10 @@ function displayStudentItem(classKey, studentId, date, studentData) {
 }
 
 function getStatusText(value, type) {
-  if (value === undefined || value === null) return '대기 중';
+  if (value === undefined || value === null) return '정보 없음';
   
   if (type === 'accept') {
-    if (value === true) return '허가됨';
-    if (value === false) return '거부됨';
-    return '대기 중';
+    return value ? '허가됨' : '대기 중 / 미허가';
   } else if (type === 'realEnter') {
     return value ? '사용 완료' : '사용 안함';
   }
@@ -502,6 +484,7 @@ function toggleAllCheckboxes() {
   });
 }
 
+// 선생님이 승인 버튼 누를 시 실행되는 함수
 async function updateStudentApprovals() {
   const selectedStudents = document.querySelectorAll('.student-check:checked');
   if (selectedStudents.length === 0) {
@@ -517,6 +500,7 @@ async function updateStudentApprovals() {
       const studentId = studentItem.dataset.id;
       const date = studentItem.dataset.date;
       
+      // DB 내 승인 상태를 true로 업데이트 -> 해당 학생 단말기에서 실시간 감지하여 푸시 알림 발송
       updates[`class/${classKey}/${studentId}/${date}/accept`] = true;
     });
 
@@ -650,27 +634,23 @@ function setupPageNavigation() {
   });
 }
 
-// ==================== HTML 이벤트를 위한 window 바인딩 ====================
-window.searchStudents = searchStudents;
-window.toggleAllCheckboxes = toggleAllCheckboxes;
-window.updateStudentApprovals = updateStudentApprovals;
-
 // ==================== 앱 초기화 ====================
 document.addEventListener("DOMContentLoaded", () => {
-  setupNavigation();
-
   if (document.getElementById('studentTeacher') || document.getElementById('checkStudentTeacher')) {
     loadTeacherList();
   }
   setupEntryExitButtons();
   
-  setupStudentPage();
+  if (document.getElementById('studentInfo') || document.getElementById('uploadStudentData') || document.getElementById('requestForm')) {
+    setupStudentPage();
+  }
   
   if (document.getElementById('go-student-btn') || document.getElementById('go-teacher-btn')) {
     setupPageNavigation();
   }
 
   const today = new Date();
+  today.setHours(today.getHours() + 7); 
   const yyyy = today.getFullYear();
   const mm = String(today.getMonth() + 1).padStart(2, '0');
   const dd = String(today.getDate()).padStart(2, '0');
