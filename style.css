@@ -176,7 +176,7 @@ input:focus, select:focus {
 #personalForm > div,
 #groupForm > div,
 #requestForm > div,
-#qrGenrateForm > div {
+#qrGenerateForm > div {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
