@@ -270,7 +270,11 @@ function setupStudentPage() {
               : "사용 안 함(Không 사용)" 
             : data.realEnter || "미확인(Chưa xác nhận)";
 
-          if (data.accept === true && data.realEnter === false) {
+          // accept가 true(또는 문자열 "true")이고 realEnter가 false(또는 문자열 "false", null, undefined)인지 확인
+          const isAccepted = data.accept === true || data.accept === "true";
+          const isNotUsedYet = data.realEnter === false || data.realEnter === "false" || !data.realEnter;
+
+          if (isAccepted && isNotUsedYet) {
             circleCheck.style.backgroundColor = "green";
           } else {
             circleCheck.style.backgroundColor = "#810707";
