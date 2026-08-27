@@ -15,6 +15,28 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
+// ==================== 날짜 제한 유틸리티 ====================
+function getDateLimits() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const maxDate = new Date(today);
+  maxDate.setDate(today.getDate() + 30); // 오늘 기준 +30일
+
+  const minStr = today.toISOString().split('T')[0];
+  const maxStr = maxDate.toISOString().split('T')[0];
+
+  return { minStr, maxStr, today, maxDate };
+}
+
+function applyDateLimits() {
+  const { minStr, maxStr } = getDateLimits();
+  document.querySelectorAll('input[type="date"]').forEach(input => {
+    input.setAttribute('min', minStr);
+    input.setAttribute('max', maxStr);
+  });
+}
+
 // ==================== 공통 및 인증 기능 ====================
 let isLoggedIn = false;
 let currentTeacherName = '';
@@ -105,13 +127,17 @@ function setupStudentPage() {
     const rangeStart = document.getElementById('rangeStartDate')?.value?.trim();
     const rangeEnd = document.getElementById('rangeEndDate')?.value?.trim();
 
+    const { minStr, maxStr, today, maxDate } = getDateLimits();
+
     if (dateSet.size === 0 && rangeStart && rangeEnd) {
       const startDate = new Date(rangeStart);
       const endDate = new Date(rangeEnd);
+
       if (!isNaN(startDate) && !isNaN(endDate) && startDate <= endDate) {
         let current = new Date(startDate);
         while (current <= endDate) {
-          dateSet.add(current.toISOString().slice(0, 10));
+          const dateString = current.toISOString().slice(0, 10);
+          dateSet.add(dateString);
           current.setDate(current.getDate() + 1);
         }
       }
@@ -126,6 +152,13 @@ function setupStudentPage() {
 
     if (dateValues.length === 0) {
       alert('사용하고자 하는 날짜를 입력해주세요.');
+      return;
+    }
+
+    // 신청 당일 기준 1개월 이내 날짜 검증
+    const invalidDates = dateValues.filter(d => d < minStr || d > maxStr);
+    if (invalidDates.length > 0) {
+      alert(`신청할 수 없는 날짜가 포함되어 있습니다.\n(신청 당일 기준 30일 이내만 가능)\n- 허용되지 않은 날짜: ${invalidDates.join(', ')}`);
       return;
     }
 
@@ -242,7 +275,7 @@ function setupStudentPage() {
           const realEnter = typeof data.realEnter === 'boolean' 
             ? data.realEnter
               ? "사용함(Đã sử dụng)" 
-              : "사용 안 함(Không sử dụng)" 
+              : "사용 안 함(Không 사용)" 
             : data.realEnter || "미확인(Chưa xác nhận)";
 
           if (data.accept === true && data.realEnter === false) {
@@ -555,6 +588,8 @@ function setupPageNavigation() {
 
 // ==================== 앱 초기화 ====================
 document.addEventListener("DOMContentLoaded", () => {
+  applyDateLimits(); // 날짜 선택 최소/최대 속성(min, max) 적용
+
   if (document.getElementById('studentTeacher') || document.getElementById('checkStudentTeacher')) {
     loadTeacherList();
   }
