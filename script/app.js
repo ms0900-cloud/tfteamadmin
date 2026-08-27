@@ -118,12 +118,12 @@ function setupStudentPage() {
       }
     }
 
-    // 1개월(오늘 기준 30일 이내) 필터링 검증
+    // 1개월(오늘 기준 31일 이내) 필터링 검증
     const todayObj = new Date();
     todayObj.setHours(0, 0, 0, 0);
 
     const maxLimitObj = new Date();
-    maxLimitObj.setDate(todayObj.getDate() + 30);
+    maxLimitObj.setDate(todayObj.getDate() + 31);
     maxLimitObj.setHours(23, 59, 59, 999);
 
     let hasInvalidDate = false;
@@ -139,7 +139,7 @@ function setupStudentPage() {
     }
 
     if (hasInvalidDate) {
-      alert("오늘 기준 1개월(30일)을 벗어난 날짜는 요청할 수 없습니다. 범위 내 날짜만 포함됩니다.");
+      alert("오늘 기준 1개월(31일)을 벗어난 날짜는 요청할 수 없습니다. 범위 내 날짜만 포함됩니다.");
     }
 
     const dateValues = Array.from(dateSet);
