@@ -15,7 +15,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// ==================== 날짜 제한 유틸리티 ====================
+// ==================== 날짜 범위 제한 유틸리티 ====================
 function getDateLimits() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -26,7 +26,7 @@ function getDateLimits() {
   const minStr = today.toISOString().split('T')[0];
   const maxStr = maxDate.toISOString().split('T')[0];
 
-  return { minStr, maxStr, today, maxDate };
+  return { minStr, maxStr };
 }
 
 function applyDateLimits() {
@@ -112,7 +112,7 @@ function showLoginModal() {
   }
 }
 
-// ==================== 학생 페이지 & 승인 수신 ====================
+// ==================== 학생 페이지 & 승인 수신 (기존 코드 구조 원복) ====================
 function setupStudentPage() {
   async function uploadStudentData() {
     const reason = document.getElementById("studentReason")?.value?.trim();
@@ -126,8 +126,6 @@ function setupStudentPage() {
 
     const rangeStart = document.getElementById('rangeStartDate')?.value?.trim();
     const rangeEnd = document.getElementById('rangeEndDate')?.value?.trim();
-
-    const { minStr, maxStr, today, maxDate } = getDateLimits();
 
     if (dateSet.size === 0 && rangeStart && rangeEnd) {
       const startDate = new Date(rangeStart);
@@ -155,10 +153,11 @@ function setupStudentPage() {
       return;
     }
 
-    // 신청 당일 기준 1개월 이내 날짜 검증
+    // ★ [추가된 로직] 신청 당일 기준 30일 이내 검증 ★
+    const { minStr, maxStr } = getDateLimits();
     const invalidDates = dateValues.filter(d => d < minStr || d > maxStr);
     if (invalidDates.length > 0) {
-      alert(`신청할 수 없는 날짜가 포함되어 있습니다.\n(신청 당일 기준 30일 이내만 가능)\n- 허용되지 않은 날짜: ${invalidDates.join(', ')}`);
+      alert(`신청할 수 없는 날짜가 포함되어 있습니다.\n(신청 당일 기준 30일 이내만 신청 가능)\n- 제외된 날짜: ${invalidDates.join(', ')}`);
       return;
     }
 
@@ -300,13 +299,13 @@ function setupStudentPage() {
         studentInfoElem.innerHTML = `데이터 조회 중 오류가 발생했습니다(ĐÃ XẢY RA LỖI KHI TRUY XUẤT DỮ LIỆU): ${error}`;
       });
       
-      // 승인 상태 변경 실시간 감지 (UI 업데이트용)
       setupStudentApprovalNotification(gc.grade, gc.classNum, id, date);
     } else {
       studentInfoElem.innerHTML = "정보가 없습니다.(KHÔNG CÓ THÔNG TIN.)";
     }
   }
 
+  // 기존과 완전히 동일한 위치에서 버튼 이벤트 리스너 바인딩
   document.getElementById("uploadStudentData")?.addEventListener("click", uploadStudentData);
   document.getElementById("requestPageBtn")?.addEventListener("click", () => {
     const requestForm = document.getElementById("requestForm");
@@ -316,7 +315,7 @@ function setupStudentPage() {
   displayStudentInfo();
 }
 
-// ==================== 학생 - 선생님 승인 실시간 UI 감지 ====================
+// ==================== 학생 - 승인 상태 실시간 감지 ====================
 function setupStudentApprovalNotification(grade, classNum, studentId, date) {
   const studentRef = ref(db, `class/${grade}-${classNum}/${studentId}/${date}`);
   
@@ -324,7 +323,6 @@ function setupStudentApprovalNotification(grade, classNum, studentId, date) {
     if (!snapshot.exists()) return;
     const data = snapshot.val();
 
-    // UI 화면만 실시간 갱신
     const circleCheck = document.getElementById('circleCheck');
     if (circleCheck && data.accept === true && data.realEnter === false) {
       circleCheck.style.backgroundColor = "green";
@@ -437,7 +435,6 @@ function toggleAllCheckboxes() {
   });
 }
 
-// 선생님이 승인 버튼 누를 시 실행되는 함수
 async function updateStudentApprovals() {
   const selectedStudents = document.querySelectorAll('.student-check:checked');
   if (selectedStudents.length === 0) {
@@ -586,9 +583,9 @@ function setupPageNavigation() {
   });
 }
 
-// ==================== 앱 초기화 ====================
+// ==================== 초기화 함수 ====================
 document.addEventListener("DOMContentLoaded", () => {
-  applyDateLimits(); // 날짜 선택 최소/최대 속성(min, max) 적용
+  applyDateLimits(); // date 타입 달력 최소/최대 제한 지정
 
   if (document.getElementById('studentTeacher') || document.getElementById('checkStudentTeacher')) {
     loadTeacherList();
@@ -624,32 +621,5 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (document.getElementById('loginModal')) {
     showLoginModal();
-  }
-});
-
-// 1. 우클릭 방지 (개발자 도구 접근 차단 보조)
-document.addEventListener('contextmenu', (e) => {
-  e.preventDefault();
-});
-
-// 2. 단축키 차단 (F12, Ctrl+U, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C)
-document.addEventListener('keydown', (e) => {
-  // F12 차단
-  if (e.key === 'F12' || e.keyCode === 123) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-
-  // Ctrl + Shift + I (개발자 도구)
-  // Ctrl + Shift + J (콘솔)
-  // Ctrl + Shift + C (요소 검사)
-  // Ctrl + U (소스 보기)
-  // Ctrl + S (페이지 저장)
-  if (
-    (e.ctrlKey && e.shiftKey && ['I', 'J', 'C'].includes(e.key.toUpperCase())) ||
-    (e.ctrlKey && ['U', 'S'].includes(e.key.toUpperCase()))
-  ) {
-    e.preventDefault();
-    e.stopPropagation();
   }
 });
