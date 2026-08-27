@@ -34,7 +34,8 @@
 
     <!-- 날짜 영역 (회색 박스) -->
     <div id="dateContainer" style="background: #f5f5f5; border: 1px solid #ddd; padding: 15px; margin-top: 15px; border-radius: 8px;">
-      <label style="font-weight: bold; display: block; margin-bottom: 8px;">사용하고자 하는 날짜:</label>
+      <label style="font-weight: bold; display: block; margin-bottom: 4px;">사용하고자 하는 날짜:</label>
+      <p style="font-size: 0.85em; color: #d9534f; margin: 0 0 8px 0;">※ 오늘 기준 1개월(30일) 이내의 날짜만 지정할 수 있습니다.</p>
       
       <div id="dateList">
         <div class="date-entry" style="margin-bottom: 5px;">
@@ -45,9 +46,10 @@
 
       <!-- 기간 선택 영역 -->
       <div id="dateRangeContainer" style="margin-top: 12px; padding: 12px; background: #ffffff; border: 1px dashed #ccc; border-radius: 6px;">
-        <label style="display: block; font-weight: bold; margin-bottom: 8px; font-size: 0.9em; color: #555;">
+        <label style="display: block; font-weight: bold; margin-bottom: 4px; font-size: 0.9em; color: #555;">
           📌 기간 설정으로 날짜 일괄 추가 (선택사항)
         </label>
+        <p style="font-size: 0.8em; color: #888; margin: 0 0 8px 0;">(오늘로부터 최대 30일 이내만 선택 가능)</p>
         <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
           <input type="date" id="rangeStartDate" style="flex: 1; min-width: 130px;" />
           <span>~</span>
@@ -317,10 +319,30 @@
     window.addEventListener("DOMContentLoaded", () => {
       loadTeacherOptions();
 
-      const today = new Date().toISOString().slice(0, 10);
+      const todayObj = new Date();
+      const maxDateObj = new Date();
+      maxDateObj.setDate(todayObj.getDate() + 30); // 30일 이내 범위 설정
+
+      const today = todayObj.toISOString().slice(0, 10);
+      const maxDate = maxDateObj.toISOString().slice(0, 10);
+
+      // 기본 및 기간 입력창에 min/max 적용
       const defaultDateInput = document.querySelector('.multi-studentDate');
-      if (defaultDateInput && !defaultDateInput.value) {
-        defaultDateInput.value = today;
+      if (defaultDateInput) {
+        defaultDateInput.min = today;
+        defaultDateInput.max = maxDate;
+        if (!defaultDateInput.value) {
+          defaultDateInput.value = today;
+        }
+      }
+
+      const rangeStart = document.getElementById('rangeStartDate');
+      const rangeEnd = document.getElementById('rangeEndDate');
+      if (rangeStart && rangeEnd) {
+        rangeStart.min = today;
+        rangeStart.max = maxDate;
+        rangeEnd.min = today;
+        rangeEnd.max = maxDate;
       }
 
       document.getElementById("doCheckBtn")?.addEventListener("click", checkApprovalStatus);
@@ -367,8 +389,15 @@
       const newEntry = document.createElement('div');
       newEntry.className = 'date-entry';
       newEntry.style.cssText = 'display: flex; gap: 10px; margin-bottom: 5px;';
+
+      const todayObj = new Date();
+      const maxDateObj = new Date();
+      maxDateObj.setDate(todayObj.getDate() + 30);
+      const today = todayObj.toISOString().slice(0, 10);
+      const maxDate = maxDateObj.toISOString().slice(0, 10);
+
       newEntry.innerHTML = `
-        <input type="date" class="multi-studentDate" style="flex: 1;" />
+        <input type="date" class="multi-studentDate" style="flex: 1;" min="${today}" max="${maxDate}" />
         <button type="button" onclick="this.parentElement.remove()" style="width: auto; margin: 0; background: #ff4c4c; color: white; border: none; padding: 0 12px; cursor: pointer; border-radius: 4px;">X</button>
       `;
       dateList.appendChild(newEntry);
@@ -384,8 +413,20 @@
         return;
       }
 
+      const todayObj = new Date();
+      todayObj.setHours(0, 0, 0, 0);
+
+      const maxLimitObj = new Date();
+      maxLimitObj.setDate(todayObj.getDate() + 30);
+      maxLimitObj.setHours(23, 59, 59, 999);
+
       const startDate = new Date(start);
       const endDate = new Date(end);
+
+      if (startDate < todayObj || endDate > maxLimitObj) {
+        alert('오늘 기준 1개월(30일) 이내의 날짜만 선택 가능합니다.');
+        return;
+      }
 
       if (startDate > endDate) {
         alert('시작일이 종료일보다 이전이어야 합니다.');
@@ -403,7 +444,7 @@
           newEntry.className = 'date-entry';
           newEntry.style.cssText = 'display: flex; gap: 10px; margin-bottom: 5px;';
           newEntry.innerHTML = `
-            <input type="date" class="multi-studentDate" style="flex: 1;" value="${isoDate}" />
+            <input type="date" class="multi-studentDate" style="flex: 1;" value="${isoDate}" min="${todayObj.toISOString().slice(0, 10)}" max="${maxLimitObj.toISOString().slice(0, 10)}" />
             <button type="button" onclick="this.parentElement.remove()" style="width: auto; margin: 0; background: #ff4c4c; color: white; border: none; padding: 0 12px; cursor: pointer; border-radius: 4px;">X</button>
           `;
           dateList.appendChild(newEntry);
