@@ -591,3 +591,30 @@ document.addEventListener("DOMContentLoaded", () => {
     showLoginModal();
   }
 });
+
+// 1. 우클릭 방지 (개발자 도구 접근 차단 보조)
+document.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+});
+
+// 2. 단축키 차단 (F12, Ctrl+U, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C)
+document.addEventListener('keydown', (e) => {
+  // F12 차단
+  if (e.key === 'F12' || e.keyCode === 123) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  // Ctrl + Shift + I (개발자 도구)
+  // Ctrl + Shift + J (콘솔)
+  // Ctrl + Shift + C (요소 검사)
+  // Ctrl + U (소스 보기)
+  // Ctrl + S (페이지 저장)
+  if (
+    (e.ctrlKey && e.shiftKey && ['I', 'J', 'C'].includes(e.key.toUpperCase())) ||
+    (e.ctrlKey && ['U', 'S'].includes(e.key.toUpperCase()))
+  ) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+});
