@@ -1,6 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
 import { getDatabase, ref, get, update, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
-import { getMessaging, getToken, onMessage, isSupported } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-messaging.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBWVZERDb9xbfqCzG3bZvRIciCslbhGTD4",
@@ -15,73 +14,6 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
-
-// ==================== Chrome 푸시 알림 설정 ====================
-let messaging;
-
-async function setupPushNotification() {
-  try {
-    const supported = await isSupported();
-    if (!supported) {
-      console.log("이 브라우저는 푸시 알림을 지원하지 않습니다.");
-      return;
-    }
-
-    const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/" });
-    await navigator.serviceWorker.ready;
-
-    messaging = getMessaging(app);
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") {
-      console.log("알림 권한이 허용되지 않았습니다.");
-      return;
-    }
-
-    const token = await getToken(messaging, {
-      vapidKey: "BJmlzsJ4LAJnis66gze-sYmtlT4J74ft-VnykoLCVxP3xwSMpC4cNyEmVY1Lxegni9LlQGfEqnlpLhNhWZL5xoA",
-      serviceWorkerRegistration: registration
-    });
-
-    if (token) {
-      console.log("FCM Token 발급 성공:", token);
-      const safeToken = token.replace(/[.#$\[\]]/g, ""); 
-      await set(ref(db, `fcmTokens/${safeToken}`), {
-        token: token,
-        createdAt: new Date().toISOString()
-      });
-    }
-
-    // 포그라운드 메시지 수신
-    onMessage(messaging, (payload) => {
-      console.log("포그라운드 메시지 수신:", payload);
-      const title = payload.notification?.title || payload.data?.title || "온라인 출입 시스템";
-      const body = payload.notification?.body || payload.data?.body || "새로운 알림이 도착했습니다.";
-      
-      showNotification(title, body);
-    });
-
-  } catch (error) {
-    console.error("푸시 알림 설정 오류:", error);
-  }
-}
-
-// 브라우저 포그라운드/알림 출력 공통 함수
-function showNotification(title, body) {
-  if ("Notification" in window && Notification.permission === "granted") {
-    try {
-      new Notification(title, { 
-        body: body, 
-        icon: "/image/favicon.png"
-      });
-    } catch (e) {
-      alert(`[${title}]\n${body}`);
-    }
-  } else {
-    alert(`[${title}]\n${body}`);
-  }
-}
-
-setupPushNotification();
 
 // ==================== 공통 및 인증 기능 ====================
 let isLoggedIn = false;
@@ -158,7 +90,7 @@ function showLoginModal() {
   }
 }
 
-// ==================== 학생 페이지 & 승인 알림 수신 ====================
+// ==================== 학생 페이지 & 승인 수신 ====================
 function setupStudentPage() {
   async function uploadStudentData() {
     const reason = document.getElementById("studentReason")?.value?.trim();
@@ -335,7 +267,7 @@ function setupStudentPage() {
         studentInfoElem.innerHTML = `데이터 조회 중 오류가 발생했습니다(ĐÃ XẢY RA LỖI KHI TRUY XUẤT DỮ LIỆU): ${error}`;
       });
       
-      // 승인 상태 변경 실시간 대기 함수 실행
+      // 승인 상태 변경 실시간 감지 (UI 업데이트용)
       setupStudentApprovalNotification(gc.grade, gc.classNum, id, date);
     } else {
       studentInfoElem.innerHTML = "정보가 없습니다.(KHÔNG CÓ THÔNG TIN.)";
@@ -351,9 +283,7 @@ function setupStudentPage() {
   displayStudentInfo();
 }
 
-// ==================== [핵심] 학생 - 선생님 승인 실시간 알림 ====================
-let hasNotifiedStudent = false;
-
+// ==================== 학생 - 선생님 승인 실시간 UI 감지 ====================
 function setupStudentApprovalNotification(grade, classNum, studentId, date) {
   const studentRef = ref(db, `class/${grade}-${classNum}/${studentId}/${date}`);
   
@@ -361,20 +291,10 @@ function setupStudentApprovalNotification(grade, classNum, studentId, date) {
     if (!snapshot.exists()) return;
     const data = snapshot.val();
 
-    // 선생님이 출입을 승인(accept: true)했을 때 알림 처리
-    if (data.accept === true && !hasNotifiedStudent) {
-      hasNotifiedStudent = true; // 중복 알림 방지
-      
-      const title = "🎉 출입 승인 완료!";
-      const body = `${data.name || '학생'}님의 [${date}] 출입 신청이 선생님에 의해 승인되었습니다.`;
-
-      showNotification(title, body);
-
-      // UI 화면 실시간 갱신
-      const circleCheck = document.getElementById('circleCheck');
-      if (circleCheck && data.realEnter === false) {
-        circleCheck.style.backgroundColor = "green";
-      }
+    // UI 화면만 실시간 갱신
+    const circleCheck = document.getElementById('circleCheck');
+    if (circleCheck && data.accept === true && data.realEnter === false) {
+      circleCheck.style.backgroundColor = "green";
     }
   });
 }
@@ -500,7 +420,6 @@ async function updateStudentApprovals() {
       const studentId = studentItem.dataset.id;
       const date = studentItem.dataset.date;
       
-      // DB 내 승인 상태를 true로 업데이트 -> 해당 학생 단말기에서 실시간 감지하여 푸시 알림 발송
       updates[`class/${classKey}/${studentId}/${date}/accept`] = true;
     });
 
