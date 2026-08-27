@@ -308,34 +308,6 @@ function setupStudentPage() {
   displayStudentInfo();
 }
 
-// ==================== [핵심] 학생 - 선생님 승인 실시간 알림 ====================
-let hasNotifiedStudent = false;
-
-function setupStudentApprovalNotification(grade, classNum, studentId, date) {
-  const studentRef = ref(db, `class/${grade}-${classNum}/${studentId}/${date}`);
-  
-  onValue(studentRef, (snapshot) => {
-    if (!snapshot.exists()) return;
-    const data = snapshot.val();
-
-    // 선생님이 출입을 승인(accept: true)했을 때 알림 처리
-    if (data.accept === true && !hasNotifiedStudent) {
-      hasNotifiedStudent = true; // 중복 알림 방지
-      
-      const title = "🎉 출입 승인 완료!";
-      const body = `${data.name || '학생'}님의 [${date}] 출입 신청이 선생님에 의해 승인되었습니다.`;
-
-      showNotification(title, body);
-
-      // UI 화면 실시간 갱신
-      const circleCheck = document.getElementById('circleCheck');
-      if (circleCheck && data.realEnter === false) {
-        circleCheck.style.backgroundColor = "green";
-      }
-    }
-  });
-}
-
 // ==================== 검색 및 선생님 관리 기능 ====================
 async function searchStudents() {
   const selectedGrade = document.getElementById('studentDefGrade')?.value;
