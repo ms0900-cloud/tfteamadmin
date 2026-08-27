@@ -16,73 +16,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// ==================== Chrome 푸시 알림 설정 ====================
-let messaging;
-
-async function setupPushNotification() {
-  try {
-    const supported = await isSupported();
-    if (!supported) {
-      console.log("이 브라우저는 푸시 알림을 지원하지 않습니다.");
-      return;
-    }
-
-    const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/" });
-    await navigator.serviceWorker.ready;
-
-    messaging = getMessaging(app);
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") {
-      console.log("알림 권한이 허용되지 않았습니다.");
-      return;
-    }
-
-    const token = await getToken(messaging, {
-      vapidKey: "BJmlzsJ4LAJnis66gze-sYmtlT4J74ft-VnykoLCVxP3xwSMpC4cNyEmVY1Lxegni9LlQGfEqnlpLhNhWZL5xoA",
-      serviceWorkerRegistration: registration
-    });
-
-    if (token) {
-      console.log("FCM Token 발급 성공:", token);
-      const safeToken = token.replace(/[.#$\[\]]/g, ""); 
-      await set(ref(db, `fcmTokens/${safeToken}`), {
-        token: token,
-        createdAt: new Date().toISOString()
-      });
-    }
-
-    // 포그라운드 메시지 수신
-    onMessage(messaging, (payload) => {
-      console.log("포그라운드 메시지 수신:", payload);
-      const title = payload.notification?.title || payload.data?.title || "온라인 출입 시스템";
-      const body = payload.notification?.body || payload.data?.body || "새로운 알림이 도착했습니다.";
-      
-      showNotification(title, body);
-    });
-
-  } catch (error) {
-    console.error("푸시 알림 설정 오류:", error);
-  }
-}
-
-// 브라우저 포그라운드/알림 출력 공통 함수
-function showNotification(title, body) {
-  if ("Notification" in window && Notification.permission === "granted") {
-    try {
-      new Notification(title, { 
-        body: body, 
-        icon: "/image/favicon.png"
-      });
-    } catch (e) {
-      alert(`[${title}]\n${body}`);
-    }
-  } else {
-    alert(`[${title}]\n${body}`);
-  }
-}
-
-setupPushNotification();
-
 // ==================== 공통 및 인증 기능 ====================
 let isLoggedIn = false;
 let currentTeacherName = '';
@@ -168,21 +101,45 @@ function setupStudentPage() {
     const nameElems = document.querySelectorAll('.multi-studentName');
     
     const dateElems = Array.from(document.querySelectorAll('.multi-studentDate'));
-    let dateSet = new Set(dateElems.map(el => el.value.trim()).filter(Boolean));
+    let rawDates = dateElems.map(el => el.value.trim()).filter(Boolean);
 
     const rangeStart = document.getElementById('rangeStartDate')?.value?.trim();
     const rangeEnd = document.getElementById('rangeEndDate')?.value?.trim();
 
-    if (dateSet.size === 0 && rangeStart && rangeEnd) {
+    if (rawDates.length === 0 && rangeStart && rangeEnd) {
       const startDate = new Date(rangeStart);
       const endDate = new Date(rangeEnd);
       if (!isNaN(startDate) && !isNaN(endDate) && startDate <= endDate) {
         let current = new Date(startDate);
         while (current <= endDate) {
-          dateSet.add(current.toISOString().slice(0, 10));
+          rawDates.push(current.toISOString().slice(0, 10));
           current.setDate(current.getDate() + 1);
         }
       }
+    }
+
+    // 1개월(오늘 기준 30일 이내) 필터링 검증
+    const todayObj = new Date();
+    todayObj.setHours(0, 0, 0, 0);
+
+    const maxLimitObj = new Date();
+    maxLimitObj.setDate(todayObj.getDate() + 30);
+    maxLimitObj.setHours(23, 59, 59, 999);
+
+    let hasInvalidDate = false;
+    const dateSet = new Set();
+
+    for (const dStr of rawDates) {
+      const targetDate = new Date(dStr);
+      if (targetDate >= todayObj && targetDate <= maxLimitObj) {
+        dateSet.add(dStr);
+      } else {
+        hasInvalidDate = true;
+      }
+    }
+
+    if (hasInvalidDate) {
+      alert("오늘 기준 1개월(30일)을 벗어난 날짜는 요청할 수 없습니다. 범위 내 날짜만 포함됩니다.");
     }
 
     const dateValues = Array.from(dateSet);
@@ -193,7 +150,7 @@ function setupStudentPage() {
     }
 
     if (dateValues.length === 0) {
-      alert('사용하고자 하는 날짜를 입력해주세요.');
+      alert('올바른 사용 날짜를 선택해주세요. (오늘부터 1개월 이내)');
       return;
     }
 
@@ -266,7 +223,7 @@ function setupStudentPage() {
 
       let msg = '';
       if (successes > 0) msg += `출입 요청이 완료되었습니다! (${successes}건)`;
-      if (errors.length > 0) msg += `\n다음 항목은 처리되지 않았습니다:\n- ${errors.join('\n- ')}`;
+      if (errors.length > 0) msg += `\n다음 항목은 처리되지 않았증니다:\n- ${errors.join('\n- ')}`;
       alert(msg);
       
       const requestForm = document.getElementById("requestForm");
@@ -310,7 +267,7 @@ function setupStudentPage() {
           const realEnter = typeof data.realEnter === 'boolean' 
             ? data.realEnter
               ? "사용함(Đã sử dụng)" 
-              : "사용 안 함(Không sử dụng)" 
+              : "사용 안 함(Không 사용)" 
             : data.realEnter || "미확인(Chưa xác nhận)";
 
           if (data.accept === true && data.realEnter === false) {
