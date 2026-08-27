@@ -37,10 +37,6 @@ function applyDateLimits() {
   });
 }
 
-// ==================== 공통 및 인증 기능 ====================
-let isLoggedIn = false;
-let currentTeacherName = '';
-
 function parseGradeClass(id) {
   if (!id) return null;
   const idStr = String(id);
@@ -55,468 +51,257 @@ function parseGradeClass(id) {
   return { grade, classNum };
 }
 
-async function teacherLogin(email, password) {
-  try {
-    const teacherRef = ref(db, 'teacher');
-    const snapshot = await get(teacherRef);
-    
-    if (snapshot.exists()) {
-      const teachers = snapshot.val();
-      for (const key in teachers) {
-        const teacher = teachers[key];
-        if (teacher && typeof teacher === 'object') {
-          if (teacher.email === email && teacher.password === password) {
-            currentTeacherName = teacher.name || key;
-            return true;
-          }
-        }
-      }
-    }
-    return false;
-  } catch (error) {
-    console.error("로그인 오류:", error);
-    return false;
-  }
-}
+// ==================== UI 폼 토글 기능 ====================
+function setupFormToggles() {
+  const requestBtn = document.getElementById("requestPageBtn");
+  const qrBtn = document.getElementById("qrGenerateFormBtn");
+  const statusBtn = document.getElementById("statusCheckBtn");
 
-function showLoginModal() {
-  const modal = document.getElementById('loginModal');
-  const content = document.getElementById('content');
-  const loginBtn = document.getElementById('loginBtn');
-  if (!modal || !content) return;
+  const requestForm = document.getElementById("requestForm");
+  const qrForm = document.getElementById("qrGenerateForm");
+  const statusForm = document.getElementById("statusCheckForm");
 
-  modal.style.display = 'flex';
-  content.style.display = 'none';
-  
-  if (loginBtn && !loginBtn.dataset.bound) {
-    loginBtn.dataset.bound = "true";
-    loginBtn.addEventListener('click', async () => {
-      const email = document.getElementById('teacherEmail')?.value.trim();
-      const password = document.getElementById('teacherPassword')?.value.trim();
-      
-      if (!email || !password) {
-        alert('이메일과 비밀번호를 입력해주세요.');
-        return;
-      }
-      
-      const success = await teacherLogin(email, password);
-      if (success) {
-        isLoggedIn = true;
-        modal.style.display = 'none';
-        content.style.display = 'block';
-        searchStudents();
-      } else {
-        alert('이메일 또는 비밀번호가 잘못되었습니다.');
-      }
-    });
-  }
-}
-
-// ==================== 학생 페이지 & 승인 수신 (기존 코드 구조 원복) ====================
-function setupStudentPage() {
-  async function uploadStudentData() {
-    const reason = document.getElementById("studentReason")?.value?.trim();
-    const teacher = document.getElementById("studentTeacher")?.value;
-
-    const idElems = document.querySelectorAll('.multi-studentId');
-    const nameElems = document.querySelectorAll('.multi-studentName');
-    
-    const dateElems = Array.from(document.querySelectorAll('.multi-studentDate'));
-    let dateSet = new Set(dateElems.map(el => el.value.trim()).filter(Boolean));
-
-    const rangeStart = document.getElementById('rangeStartDate')?.value?.trim();
-    const rangeEnd = document.getElementById('rangeEndDate')?.value?.trim();
-
-    if (dateSet.size === 0 && rangeStart && rangeEnd) {
-      const startDate = new Date(rangeStart);
-      const endDate = new Date(rangeEnd);
-
-      if (!isNaN(startDate) && !isNaN(endDate) && startDate <= endDate) {
-        let current = new Date(startDate);
-        while (current <= endDate) {
-          const dateString = current.toISOString().slice(0, 10);
-          dateSet.add(dateString);
-          current.setDate(current.getDate() + 1);
-        }
-      }
-    }
-
-    const dateValues = Array.from(dateSet);
-
-    if (!reason || !teacher) {
-      alert('사유와 담당 교사를 선택해주세요.');
-      return;
-    }
-
-    if (dateValues.length === 0) {
-      alert('사용하고자 하는 날짜를 입력해주세요.');
-      return;
-    }
-
-    // ★ [추가된 로직] 신청 당일 기준 30일 이내 검증 ★
-    const { minStr, maxStr } = getDateLimits();
-    const invalidDates = dateValues.filter(d => d < minStr || d > maxStr);
-    if (invalidDates.length > 0) {
-      alert(`신청할 수 없는 날짜가 포함되어 있습니다.\n(신청 당일 기준 30일 이내만 신청 가능)\n- 제외된 날짜: ${invalidDates.join(', ')}`);
-      return;
-    }
-
-    let successes = 0;
-    const errors = [];
-
-    try {
-      if (idElems.length > 0 && nameElems.length > 0) {
-        for (let i = 0; i < idElems.length; i++) {
-          const sid = idElems[i].value.trim();
-          const sname = (nameElems[i] && nameElems[i].value.trim()) || '';
-          if (!sid || !sname) {
-            errors.push(`학생 ${i + 1}: 학번 또는 이름 누락`);
-            continue;
-          }
-
-          const gc = parseGradeClass(sid);
-          if (!gc) {
-            errors.push(`${sid}: 잘못된 학번 형식`);
-            continue;
-          }
-
-          for (const sdate of dateValues) {
-            const dbPath = `class/${gc.grade}-${gc.classNum}/${sid}/${sdate}`;
-            const dbRef = ref(db, dbPath);
-            const studentData = {
-              name: sname,
-              reason: reason,
-              accept: false,
-              enterTime: "없음",
-              leaveTime: "없음",
-              realEnter: false,
-              teacher: teacher
-            };
-            await set(dbRef, studentData);
-            successes++;
-          }
-        }
-      } else {
-        const studentId = document.getElementById("studentId")?.value?.trim();
-        const studentName = document.getElementById("studentName")?.value?.trim();
-
-        if (!studentId || !studentName) {
-          alert('학번과 이름을 입력해주세요.');
-          return;
-        }
-
-        const gc = parseGradeClass(studentId);
-        if (!gc) {
-          alert('잘못된 학번 형식입니다.');
-          return;
-        }
-
-        for (const sdate of dateValues) {
-          const dbPath = `class/${gc.grade}-${gc.classNum}/${studentId}/${sdate}`;
-          const dbRef = ref(db, dbPath);
-          const studentData = {
-            name: studentName,
-            reason: reason,
-            accept: false,
-            enterTime: "없음",
-            leaveTime: "null",
-            realEnter: false,
-            teacher: teacher
-          };
-          await set(dbRef, studentData);
-          successes++;
-        }
-      }
-
-      let msg = '';
-      if (successes > 0) msg += `출입 요청이 완료되었습니다! (${successes}건)`;
-      if (errors.length > 0) msg += `\n다음 항목은 처리되지 않았습니다:\n- ${errors.join('\n- ')}`;
-      alert(msg);
-      
-      const requestForm = document.getElementById("requestForm");
-      if (requestForm) requestForm.style.display = "none";
-    } catch (error) {
-      alert(`오류 발생: ${error.message}`);
-    }
+  function hideAllForms() {
+    if (requestForm) requestForm.style.display = "none";
+    if (qrForm) qrForm.style.display = "none";
+    if (statusForm) statusForm.style.display = "none";
   }
 
-  function displayStudentInfo() {
-    const studentInfoElem = document.getElementById('studentInfo');
-    const circleCheck = document.getElementById('circleCheck');
-    if (!studentInfoElem || !circleCheck) return;
-
-    const params = new URLSearchParams(window.location.search);
-    const id = params.get('id');
-    const date = params.get('date');
-
-    if (id && date) {
-      const gc = parseGradeClass(id);
-      if (!gc) {
-        studentInfoElem.innerHTML = "잘못된 학번 형식입니다.";
-        return;
-      }
-
-      const dbRef = ref(db, `/class/${gc.grade}-${gc.classNum}/${id}/${date}`);
-      get(dbRef).then((snapshot) => {
-        if (snapshot.exists()) {
-          const data = snapshot.val();
-          const name = data.name || "(이름 정보 없음)";
-          const reason = data.reason || "(사유 정보 없음)";
-          const teacher = data.teacher || "(지도 교사 정보 없음)";
-
-          let accept = "승인 대기 중(Đang chờ phê duyệt)";
-          if (data.accept === true) {
-            accept = "허가됨(Đã được chấp nhận)";
-          } else if (data.accept === "rejected" || data.accept === "거부됨") {
-            accept = "거부됨(Đã bị từ chối)";
-          }
-
-          const realEnter = typeof data.realEnter === 'boolean' 
-            ? data.realEnter
-              ? "사용함(Đã sử dụng)" 
-              : "사용 안 함(Không 사용)" 
-            : data.realEnter || "미확인(Chưa xác nhận)";
-
-          if (data.accept === true && data.realEnter === false) {
-            circleCheck.style.backgroundColor = "green";
-          } else {
-            circleCheck.style.backgroundColor = "#810707";
-          }
-
-          studentInfoElem.innerHTML = `
-            학번(Mã số lớp): ${id}<br>
-            이름(Họ tên): ${name}<br>
-            날짜(Ngày hôm nay): ${date}<br>
-            사유(Lý do): ${reason}<br>
-            지도 교사(GV chủ nhiệm): ${teacher}<br>
-            출입 여부(Ra vào): ${accept}<br>
-            사용 여부(Đã 사용): ${realEnter}
-          `;
-        } else {
-          studentInfoElem.innerHTML = "해당 날짜에 대한 데이터가 없습니다.(KHÔNG CÓ DỮ LIỆU CHO NGÀY NÀY.)";
-        }
-      }).catch((error) => {
-        studentInfoElem.innerHTML = `데이터 조회 중 오류가 발생했습니다(ĐÃ XẢY RA LỖI KHI TRUY XUẤT DỮ LIỆU): ${error}`;
-      });
-      
-      setupStudentApprovalNotification(gc.grade, gc.classNum, id, date);
-    } else {
-      studentInfoElem.innerHTML = "정보가 없습니다.(KHÔNG CÓ THÔNG TIN.)";
-    }
-  }
-
-  // 기존과 완전히 동일한 위치에서 버튼 이벤트 리스너 바인딩
-  document.getElementById("uploadStudentData")?.addEventListener("click", uploadStudentData);
-  document.getElementById("requestPageBtn")?.addEventListener("click", () => {
-    const requestForm = document.getElementById("requestForm");
+  requestBtn?.addEventListener("click", () => {
+    hideAllForms();
     if (requestForm) requestForm.style.display = "block";
   });
 
-  displayStudentInfo();
-}
+  qrBtn?.addEventListener("click", () => {
+    hideAllForms();
+    if (qrForm) qrForm.style.display = "block";
+  });
 
-// ==================== 학생 - 승인 상태 실시간 감지 ====================
-function setupStudentApprovalNotification(grade, classNum, studentId, date) {
-  const studentRef = ref(db, `class/${grade}-${classNum}/${studentId}/${date}`);
-  
-  onValue(studentRef, (snapshot) => {
-    if (!snapshot.exists()) return;
-    const data = snapshot.val();
-
-    const circleCheck = document.getElementById('circleCheck');
-    if (circleCheck && data.accept === true && data.realEnter === false) {
-      circleCheck.style.backgroundColor = "green";
-    }
+  statusBtn?.addEventListener("click", () => {
+    hideAllForms();
+    if (statusForm) statusForm.style.display = "block";
   });
 }
 
-// ==================== 검색 및 선생님 관리 기능 ====================
-async function searchStudents() {
-  const selectedGrade = document.getElementById('studentDefGrade')?.value;
-  const selectedEnter = document.getElementById('studentDefEnter')?.value;
-  const selectedRequest = document.getElementById('studentDefRequest')?.value;
-  
-  const startDate = document.getElementById('studentDefStartDate')?.value;
-  const endDate = document.getElementById('studentDefEndDate')?.value;
-  
-  const listContainer = document.getElementById('listofStudents');
+// ==================== 동적 폼 항목 추가 기능 ====================
+function setupDynamicInputs() {
+  // 1. 학생 인원 추가
+  document.getElementById("addStudentBtn")?.addEventListener("click", () => {
+    const studentList = document.getElementById("studentList");
+    if (!studentList) return;
 
-  if (!listContainer) return;
+    const div = document.createElement("div");
+    div.className = "student-entry";
+    div.style.cssText = "display: flex; gap: 10px; margin-bottom: 5px;";
+    div.innerHTML = `
+      <input type="text" class="multi-studentId" placeholder="학번 입력" style="flex: 1;" />
+      <input type="text" class="multi-studentName" placeholder="이름 입력" style="flex: 1;" />
+    `;
+    studentList.appendChild(div);
+  });
 
-  try {
-    const snapshot = await get(ref(db, 'class'));
-    listContainer.innerHTML = '';
+  // 2. 날짜 칸 추가
+  document.getElementById("addDateBtn")?.addEventListener("click", () => {
+    const dateList = document.getElementById("dateList");
+    if (!dateList) return;
 
-    if (!snapshot.exists()) {
-      listContainer.innerHTML = '<div class="no-data">데이터가 없습니다.</div>';
+    const { minStr, maxStr } = getDateLimits();
+    const div = document.createElement("div");
+    div.className = "date-entry";
+    div.style.marginBottom = "5px";
+    div.innerHTML = `<input type="date" class="multi-studentDate" min="${minStr}" max="${maxStr}" />`;
+    dateList.appendChild(div);
+  });
+
+  // 3. 날짜 범위 일괄 추가
+  document.getElementById("addDateRangeBtn")?.addEventListener("click", () => {
+    const startDateVal = document.getElementById("rangeStartDate")?.value;
+    const endDateVal = document.getElementById("rangeEndDate")?.value;
+
+    if (!startDateVal || !endDateVal) {
+      alert("시작 날짜와 종료 날짜를 모두 선택해주세요.");
       return;
     }
 
-    const classes = snapshot.val();
-    let foundCount = 0;
-
-    for (const classKey in classes) {
-      const grade = classKey.split('-')[0];
-      if (selectedGrade && grade !== selectedGrade) continue;
-
-      const students = classes[classKey];
-      for (const studentId in students) {
-        const dateEntries = students[studentId];
-        
-        for (const currentDate in dateEntries) {
-          if (startDate && currentDate < startDate) continue;
-          if (endDate && currentDate > endDate) continue;
-
-          const studentData = dateEntries[currentDate];
-
-          if (studentData.teacher !== currentTeacherName) continue;
-          if (selectedEnter && String(studentData.accept) !== selectedEnter) continue;
-          if (selectedRequest === 'used' && !studentData.realEnter) continue;
-          if (selectedRequest === 'unused' && studentData.realEnter) continue;
-
-          displayStudentItem(classKey, studentId, currentDate, studentData);
-          foundCount++;
-        }
-      }
+    const { minStr, maxStr } = getDateLimits();
+    if (startDateVal < minStr || endDateVal > maxStr) {
+      alert("신청 당일 기준 30일 이내의 날짜만 선택할 수 있습니다.");
+      return;
     }
 
-    if (foundCount === 0) {
-      listContainer.innerHTML = '<div class="no-data">검색 결과가 없습니다.</div>';
+    const start = new Date(startDateVal);
+    const end = new Date(endDateVal);
+
+    if (start > end) {
+      alert("시작 날짜가 종료 날짜보다 뒤일 수 없습니다.");
+      return;
     }
-  } catch (error) {
-    console.error('검색 오류:', error);
-    alert('학생 검색 중 오류가 발생했습니다.');
-  }
-}
 
-function displayStudentItem(classKey, studentId, date, studentData) {
-  const listContainer = document.getElementById('listofStudents');
-  const studentDiv = document.createElement('div');
-  studentDiv.className = 'student-item';
-  studentDiv.dataset.class = classKey;
-  studentDiv.dataset.id = studentId;
-  studentDiv.dataset.date = date;
+    const dateList = document.getElementById("dateList");
+    if (!dateList) return;
+    dateList.innerHTML = ""; // 기존 단일 입력 칸 초기화
 
-  studentDiv.innerHTML = `
-    <div class="student-info">
-      <input type="checkbox" id="chk-${studentId}-${date}" class="student-check">
-      <label for="chk-${studentId}-${date}">
-        <strong>[${date}] ${classKey} | ${studentId}</strong> - ${studentData.name || '이름 없음'}
-      </label>
-    </div>
-    <div class="student-details">
-      <span>사유: ${studentData.reason || '사유 없음'}</span>
-      <span>출입 상태: ${getStatusText(studentData.accept, 'accept')}</span>
-      <span>출입증 사용 여부: ${getStatusText(studentData.realEnter, 'realEnter')}</span>
-      <span>담당 교사: ${studentData.teacher || '미지정'}</span>
-      <span>출입: ${studentData.enterTime || '없음'}</span>
-      <span>퇴실: ${studentData.leaveTime || '없음'}</span>
-    </div>
-  `;
-
-  listContainer.appendChild(studentDiv);
-}
-
-function getStatusText(value, type) {
-  if (value === undefined || value === null) return '정보 없음';
-  
-  if (type === 'accept') {
-    return value ? '허가됨' : '대기 중 / 미허가';
-  } else if (type === 'realEnter') {
-    return value ? '사용 완료' : '사용 안함';
-  }
-  return String(value);
-}
-
-function toggleAllCheckboxes() {
-  const isChecked = document.getElementById('selectAll')?.checked;
-  document.querySelectorAll('.student-check').forEach(checkbox => {
-    checkbox.checked = isChecked;
+    let curr = new Date(start);
+    while (curr <= end) {
+      const dateStr = curr.toISOString().split("T")[0];
+      const div = document.createElement("div");
+      div.className = "date-entry";
+      div.style.marginBottom = "5px";
+      div.innerHTML = `<input type="date" class="multi-studentDate" value="${dateStr}" min="${minStr}" max="${maxStr}" />`;
+      dateList.appendChild(div);
+      curr.setDate(curr.getDate() + 1);
+    }
   });
 }
 
-async function updateStudentApprovals() {
-  const selectedStudents = document.querySelectorAll('.student-check:checked');
-  if (selectedStudents.length === 0) {
-    alert('학생을 선택해주세요.');
+// ==================== 학생 요청 데이터 업로드 ====================
+async function uploadStudentData() {
+  const reason = document.getElementById("studentReason")?.value?.trim();
+  const teacher = document.getElementById("studentTeacher")?.value;
+
+  const idElems = document.querySelectorAll('.multi-studentId');
+  const nameElems = document.querySelectorAll('.multi-studentName');
+  
+  const dateElems = Array.from(document.querySelectorAll('.multi-studentDate'));
+  let dateSet = new Set(dateElems.map(el => el.value.trim()).filter(Boolean));
+
+  const dateValues = Array.from(dateSet);
+
+  if (!reason || !teacher) {
+    alert('사유와 담당 교사를 선택해주세요.');
+    return;
+  }
+
+  if (dateValues.length === 0) {
+    alert('사용하고자 하는 날짜를 입력해주세요.');
+    return;
+  }
+
+  // 신청 당일 기준 30일 이내 검증
+  const { minStr, maxStr } = getDateLimits();
+  const invalidDates = dateValues.filter(d => d < minStr || d > maxStr);
+  if (invalidDates.length > 0) {
+    alert(`신청할 수 없는 날짜가 포함되어 있습니다.\n(신청 당일 기준 30일 이내만 신청 가능)\n- 제외된 날짜: ${invalidDates.join(', ')}`);
+    return;
+  }
+
+  let successes = 0;
+  const errors = [];
+
+  try {
+    for (let i = 0; i < idElems.length; i++) {
+      const sid = idElems[i].value.trim();
+      const sname = (nameElems[i] && nameElems[i].value.trim()) || '';
+      if (!sid || !sname) {
+        errors.push(`학생 ${i + 1}: 학번 또는 이름 누락`);
+        continue;
+      }
+
+      const gc = parseGradeClass(sid);
+      if (!gc) {
+        errors.push(`${sid}: 잘못된 학번 형식`);
+        continue;
+      }
+
+      for (const sdate of dateValues) {
+        const dbPath = `class/${gc.grade}-${gc.classNum}/${sid}/${sdate}`;
+        const dbRef = ref(db, dbPath);
+        const studentData = {
+          name: sname,
+          reason: reason,
+          accept: false,
+          enterTime: "없음",
+          leaveTime: "없음",
+          realEnter: false,
+          teacher: teacher
+        };
+        await set(dbRef, studentData);
+        successes++;
+      }
+    }
+
+    let msg = '';
+    if (successes > 0) msg += `출입 요청이 완료되었습니다! (${successes}건)`;
+    if (errors.length > 0) msg += `\n다음 항목은 처리되지 않았습니다:\n- ${errors.join('\n- ')}`;
+    alert(msg);
+    
+    const requestForm = document.getElementById("requestForm");
+    if (requestForm) requestForm.style.display = "none";
+  } catch (error) {
+    alert(`오류 발생: ${error.message}`);
+  }
+}
+
+// ==================== QR 및 신청/승인 조회 ====================
+window.generateQRCode = function() {
+  const id = document.getElementById("qrStudentId")?.value.trim();
+  const name = document.getElementById("qrStudentName")?.value.trim();
+  const date = document.getElementById("qrStudentDate")?.value;
+  const qrContainer = document.getElementById("qrcode");
+
+  if (!id || !name || !date) {
+    alert("학번, 이름, 날짜를 모두 입력해주세요.");
+    return;
+  }
+
+  if (qrContainer) {
+    qrContainer.innerHTML = "";
+    const qrData = `ID:${id}|NAME:${name}|DATE:${date}`;
+    new QRCode(qrContainer, {
+      text: qrData,
+      width: 128,
+      height: 128
+    });
+  }
+};
+
+async function checkStatus() {
+  const id = document.getElementById("checkStudentId")?.value.trim();
+  const name = document.getElementById("checkStudentName")?.value.trim();
+  const date = document.getElementById("checkStudentDate")?.value;
+  const teacher = document.getElementById("checkStudentTeacher")?.value;
+  const resultDiv = document.getElementById("approvalResult");
+
+  if (!id || !date) {
+    alert("학번과 날짜를 입력해주세요.");
+    return;
+  }
+
+  const gc = parseGradeClass(id);
+  if (!gc) {
+    alert("올바른 학번 형식이 아닙니다.");
     return;
   }
 
   try {
-    const updates = {};
-    selectedStudents.forEach(checkbox => {
-      const studentItem = checkbox.closest('.student-item');
-      const classKey = studentItem.dataset.class;
-      const studentId = studentItem.dataset.id;
-      const date = studentItem.dataset.date;
-      
-      updates[`class/${classKey}/${studentId}/${date}/accept`] = true;
-    });
+    const dbRef = ref(db, `class/${gc.grade}-${gc.classNum}/${id}/${date}`);
+    const snapshot = await get(dbRef);
 
-    await update(ref(db), updates);
-    alert(`${selectedStudents.length}명의 학생 출입이 허가 및 승인되었습니다.`);
-    searchStudents();
-  } catch (error) {
-    console.error('업데이트 오류:', error);
-    alert('학생 정보 업데이트 중 오류가 발생했습니다.');
+    if (resultDiv) {
+      resultDiv.style.display = "block";
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        let statusText = "대기 중";
+        if (data.accept === true) statusText = "<span style='color:green; font-weight:bold;'>승인됨</span>";
+        else if (data.accept === "rejected") statusText = "<span style='color:red; font-weight:bold;'>거부됨</span>";
+
+        resultDiv.innerHTML = `
+          <h3>조회 결과</h3>
+          <p><strong>학번:</strong> ${id}</p>
+          <p><strong>이름:</strong> ${data.name || name}</p>
+          <p><strong>날짜:</strong> ${date}</p>
+          <p><strong>승인 상태:</strong> ${statusText}</p>
+        `;
+      } else {
+        resultDiv.innerHTML = "<p>해당 날짜에 신청된 데이터가 없습니다.</p>";
+      }
+    }
+  } catch (err) {
+    alert("조회 중 오류 발생: " + err.message);
   }
 }
 
-// ==================== 시간 및 출퇴실 처리 ====================
-function getVietnamTime() {
-  const now = new Date();
-  now.setHours(now.getHours() + 7);
-  return now.toISOString().replace('T', ' ').substring(0, 19);
-}
-
-function setupEntryExitButtons() {
-  const enterBtn = document.getElementById('enter-btn');
-  const leaveBtn = document.getElementById('leave-btn');
-  if (!enterBtn || !leaveBtn) return;
-
-  const params = new URLSearchParams(window.location.search);
-  const id = params.get('id');
-  const date = params.get('date');
-  if (!id || !date) return;
-
-  const gc = parseGradeClass(id);
-  if (!gc) return;
-
-  const dbRef = ref(db, `/class/${gc.grade}-${gc.classNum}/${id}/${date}`);
-  get(dbRef).then((snapshot) => {
-    if (snapshot.exists()) {
-      const data = snapshot.val();
-      if (data.accept === true && data.realEnter !== true) {
-        enterBtn.style.display = 'inline-block';
-        enterBtn.addEventListener('click', () => {
-          update(dbRef, { realEnter: true, enterTime: getVietnamTime() })
-            .then(() => {
-              alert('입장 시간이 기록되었습니다!\nThời gian vào đã được ghi lại!');
-              location.reload();
-            })
-            .catch((error) => {
-              alert(`오류 발생: ${error.message}`);
-            });
-        });
-      } else {
-        enterBtn.style.display = 'none';
-      }
-
-      leaveBtn.addEventListener('click', () => {
-        update(dbRef, { leaveTime: getVietnamTime() })
-          .then(() => {
-            alert('퇴실 시간이 기록되었습니다!\nThời gian ra đã được ghi lại!');
-            location.reload();
-          })
-          .catch((error) => {
-            alert(`오류 발생: ${error.message}`);
-          });
-      });
-    }
-  });
-}
-
-// ==================== 교사 목록 관리 ====================
+// ==================== 교사 목록 로드 ====================
 async function loadTeacherList() {
   const teacherSelect = document.getElementById('studentTeacher');
   const checkTeacherSelect = document.getElementById('checkStudentTeacher');
@@ -525,42 +310,23 @@ async function loadTeacherList() {
 
   try {
     const snapshot = await get(ref(db, 'teacher'));
-    
-    if (teacherSelect) teacherSelect.innerHTML = '<option value="">담당 교사를 선택하세요</option>';
-    if (checkTeacherSelect) checkTeacherSelect.innerHTML = '<option value="">담당 교사를 선택하세요</option>';
-
     if (snapshot.exists()) {
       const teacherData = snapshot.val();
-
       const appendOption = (nameValue) => {
         if (!nameValue) return;
-        if (teacherSelect) {
-          const opt1 = document.createElement('option');
-          opt1.value = nameValue;
-          opt1.textContent = nameValue;
-          teacherSelect.appendChild(opt1);
-        }
-        if (checkTeacherSelect) {
-          const opt2 = document.createElement('option');
-          opt2.value = nameValue;
-          opt2.textContent = nameValue;
-          checkTeacherSelect.appendChild(opt2);
-        }
+        [teacherSelect, checkTeacherSelect].forEach(select => {
+          if (select) {
+            const opt = document.createElement('option');
+            opt.value = nameValue;
+            opt.textContent = nameValue;
+            select.appendChild(opt);
+          }
+        });
       };
 
       if (typeof teacherData === 'object' && !Array.isArray(teacherData)) {
         Object.entries(teacherData).forEach(([key, value]) => {
-          let teacherName = key;
-          if (value && typeof value === 'object' && value.name) {
-            teacherName = value.name;
-          } else if (typeof value === 'string') {
-            teacherName = value;
-          }
-          appendOption(teacherName);
-        });
-      } else if (Array.isArray(teacherData)) {
-        teacherData.forEach((teacher) => {
-          const teacherName = typeof teacher === 'object' ? teacher.name : teacher;
+          const teacherName = (value && typeof value === 'object' && value.name) ? value.name : key;
           appendOption(teacherName);
         });
       }
@@ -570,56 +336,13 @@ async function loadTeacherList() {
   }
 }
 
-function setupPageNavigation() {
-  const pages = [
-    { id: 'go-student-btn', url: 'student.html' },
-    { id: 'go-teacher-btn', url: 'teacher.html' }
-  ];
-
-  pages.forEach(page => {
-    document.getElementById(page.id)?.addEventListener('click', () => {
-      window.location.href = page.url;
-    });
-  });
-}
-
-// ==================== 초기화 함수 ====================
+// ==================== DOM 이벤트 초기화 ====================
 document.addEventListener("DOMContentLoaded", () => {
-  applyDateLimits(); // date 타입 달력 최소/최대 제한 지정
+  applyDateLimits();
+  setupFormToggles();
+  setupDynamicInputs();
+  loadTeacherList();
 
-  if (document.getElementById('studentTeacher') || document.getElementById('checkStudentTeacher')) {
-    loadTeacherList();
-  }
-  setupEntryExitButtons();
-  
-  if (document.getElementById('studentInfo') || document.getElementById('uploadStudentData') || document.getElementById('requestForm')) {
-    setupStudentPage();
-  }
-  
-  if (document.getElementById('go-student-btn') || document.getElementById('go-teacher-btn')) {
-    setupPageNavigation();
-  }
-
-  const today = new Date();
-  today.setHours(today.getHours() + 7); 
-  const yyyy = today.getFullYear();
-  const mm = String(today.getMonth() + 1).padStart(2, '0');
-  const dd = String(today.getDate()).padStart(2, '0');
-  const formattedDate = `${yyyy}-${mm}-${dd}`;
-  
-  const qrDateInput = document.getElementById('qrStudentDate');
-  const startDateInput = document.getElementById('studentDefStartDate');
-  const endDateInput = document.getElementById('studentDefEndDate');
-  
-  if (qrDateInput) qrDateInput.value = formattedDate;
-  if (startDateInput) startDateInput.value = formattedDate;
-  if (endDateInput) endDateInput.value = formattedDate;
-
-  document.getElementById('saveCategory')?.addEventListener('click', searchStudents);
-  document.getElementById('selectAll')?.addEventListener('change', toggleAllCheckboxes);
-  document.getElementById('save')?.addEventListener('click', updateStudentApprovals);
-
-  if (document.getElementById('loginModal')) {
-    showLoginModal();
-  }
+  document.getElementById("uploadStudentData")?.addEventListener("click", uploadStudentData);
+  document.getElementById("doCheckBtn")?.addEventListener("click", checkStatus);
 });
