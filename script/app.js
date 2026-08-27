@@ -129,7 +129,6 @@ function setupStudentPage() {
       return;
     }
 
-    // --- [추가/수정] 오늘 기준 1개월 이내 검증 로직 ---
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -149,7 +148,6 @@ function setupStudentPage() {
       alert(`신청 불가능한 날짜가 포함되어 있습니다.\n(신청일로부터 1개월 이내 날짜만 신청 가능)\n\n잘못된 날짜:\n- ${invalidDates.join('\n- ')}`);
       return;
     }
-    // ---------------------------------------------------
 
     let successes = 0;
     const errors = [];
@@ -264,7 +262,7 @@ function setupStudentPage() {
           const realEnter = typeof data.realEnter === 'boolean' 
             ? data.realEnter
               ? "사용함(Đã sử dụng)" 
-              : "사용 안 함(Không 사용)" 
+              : "사용 안 함(Không sử dụng)" 
             : data.realEnter || "미확인(Chưa xác nhận)";
 
           if (data.accept === true && data.realEnter === false) {
@@ -280,7 +278,7 @@ function setupStudentPage() {
             사유(Lý do): ${reason}<br>
             지도 교사(GV chủ nhiệm): ${teacher}<br>
             출입 여부(Ra vào): ${accept}<br>
-            사용 여부(Đã 사용): ${realEnter}
+            사용 여부(Đã sử dụng): ${realEnter}
           `;
         } else {
           studentInfoElem.innerHTML = "해당 날짜에 대한 데이터가 없습니다.(KHÔNG CÓ DỮ LIỆU CHO NGÀY NÀY.)";
@@ -570,6 +568,11 @@ function setupPageNavigation() {
     });
   });
 }
+
+// ==================== HTML 이벤트를 위한 window 바인딩 ====================
+window.searchStudents = searchStudents;
+window.toggleAllCheckboxes = toggleAllCheckboxes;
+window.updateStudentApprovals = updateStudentApprovals;
 
 // ==================== 앱 초기화 ====================
 document.addEventListener("DOMContentLoaded", () => {
