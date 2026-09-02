@@ -20,6 +20,17 @@ const db = getDatabase(app);
 let isLoggedIn = false;
 let currentTeacherName = '';
 
+// 비밀번호 '2026'을 SHA-256으로 암호화한 해시값 (F12 개발자도구로 봐도 원래 번호 복원 불가)
+const TEACHER_PASSWORD_HASH = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918";
+
+// 입력받은 비밀번호를 암호화하는 함수
+async function hashPassword(password) {
+  const msgUint8 = new TextEncoder().encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 function parseGradeClass(id) {
   if (!id) return null;
   const idStr = String(id);
@@ -34,22 +45,16 @@ function parseGradeClass(id) {
   return { grade, classNum };
 }
 
-async function teacherLogin(email, password) {
+// [수정] DB를 읽지 않고 코드 내부 해시값으로 비밀번호 '2026' 검증
+async function teacherLogin(teacherInput, password) {
   try {
-    const teacherRef = ref(db, 'teacher');
-    const snapshot = await get(teacherRef);
+    const inputHash = await hashPassword(password);
     
-    if (snapshot.exists()) {
-      const teachers = snapshot.val();
-      for (const key in teachers) {
-        const teacher = teachers[key];
-        if (teacher && typeof teacher === 'object') {
-          if (teacher.email === email && teacher.password === password) {
-            currentTeacherName = teacher.name || key;
-            return true;
-          }
-        }
-      }
+    // 비밀번호가 '2026'인 경우에만 성공
+    if (inputHash === TEACHER_PASSWORD_HASH) {
+      // 입력값이 이메일 형태(example@domain)면 아이디만 추출, 이름이면 그대로 사용
+      currentTeacherName = teacherInput.includes('@') ? teacherInput.split('@')[0] : teacherInput;
+      return true;
     }
     return false;
   } catch (error) {
@@ -74,7 +79,7 @@ function showLoginModal() {
       const password = document.getElementById('teacherPassword')?.value.trim();
       
       if (!email || !password) {
-        alert('이메일과 비밀번호를 입력해주세요.');
+        alert('선생님 이름(또는 이메일)과 비밀번호를 입력해주세요.');
         return;
       }
       
@@ -85,7 +90,7 @@ function showLoginModal() {
         content.style.display = 'block';
         searchStudents();
       } else {
-        alert('이메일 또는 비밀번호가 잘못되었습니다.');
+        alert('비밀번호가 잘못되었습니다.');
       }
     });
   }
@@ -118,7 +123,6 @@ function setupStudentPage() {
       }
     }
 
-    // 1개월(오늘 기준 31일 이내) 필터링 검증
     const todayObj = new Date();
     todayObj.setHours(0, 0, 0, 0);
 
@@ -223,7 +227,7 @@ function setupStudentPage() {
 
       let msg = '';
       if (successes > 0) msg += `출입 요청이 완료되었습니다! (${successes}건)`;
-      if (errors.length > 0) msg += `\n다음 항목은 처리되지 않았증니다:\n- ${errors.join('\n- ')}`;
+      if (errors.length > 0) msg += `\n다음 항목은 처리되지 않았습니다:\n- ${errors.join('\n- ')}`;
       alert(msg);
       
       const requestForm = document.getElementById("requestForm");
@@ -270,7 +274,6 @@ function setupStudentPage() {
               : "사용 안 함(Không 사용)" 
             : data.realEnter || "미확인(Chưa xác nhận)";
 
-          // accept가 true(또는 문자열 "true")이고 realEnter가 false(또는 문자열 "false", null, undefined)인지 확인
           const isAccepted = data.accept === true || data.accept === "true";
           const isNotUsedYet = data.realEnter === false || data.realEnter === "false" || !data.realEnter;
 
@@ -296,7 +299,6 @@ function setupStudentPage() {
         studentInfoElem.innerHTML = `데이터 조회 중 오류가 발생했습니다(ĐÃ XẢY RA LỖI KHI TRUY XUẤT DỮ LIỆU): ${error}`;
       });
       
-      // 승인 상태 변경 실시간 대기 함수 실행
       setupStudentApprovalNotification(gc.grade, gc.classNum, id, date);
     } else {
       studentInfoElem.innerHTML = "정보가 없습니다.(KHÔNG CÓ THÔNG TIN.)";
@@ -417,7 +419,6 @@ function toggleAllCheckboxes() {
   });
 }
 
-// 선생님이 승인 버튼 누를 시 실행되는 함수
 async function updateStudentApprovals() {
   const selectedStudents = document.querySelectorAll('.student-check:checked');
   if (selectedStudents.length === 0) {
@@ -433,7 +434,6 @@ async function updateStudentApprovals() {
       const studentId = studentItem.dataset.id;
       const date = studentItem.dataset.date;
       
-      // DB 내 승인 상태를 true로 업데이트 -> 해당 학생 단말기에서 실시간 감지하여 푸시 알림 발송
       updates[`class/${classKey}/${studentId}/${date}/accept`] = true;
     });
 
@@ -507,7 +507,6 @@ async function loadTeacherList() {
   
   if (!teacherSelect && !checkTeacherSelect) return;
 
-  // 입력된 전체 선생님 명단 (가나다순)
   const TEACHER_LIST = [
     "권은숙", "김명환", "김미연", "김민우", "김병관", "김보연", "김성준", "김연호", "김옥출", 
     "김재란", "김태이", "남현정", "문기쁨", "문종배", "박선영", "박은길", "박정현", "박현종", 
@@ -540,6 +539,7 @@ async function loadTeacherList() {
     console.error('선생님 목록 로드 오류:', error);
   }
 }
+
 function setupPageNavigation() {
   const pages = [
     { id: 'go-student-btn', url: 'student.html' },
