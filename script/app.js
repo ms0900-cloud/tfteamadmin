@@ -325,39 +325,126 @@ async function searchStudents() {
 
   if (!listContainer) return;
 
+  listContainer.innerHTML = '<div>데이터를 조회 중입니다...</div>';
+
   try {
-    const snapshot = await get(ref(db, 'class'));
+    let foundCount = 0;
     listContainer.innerHTML = '';
 
-    if (!snapshot.exists()) {
-      listContainer.innerHTML = '<div class="no-data">데이터가 없습니다.</div>';
-      return;
+    // 검색 대상 학년 지정 (전체 선택 시 7~12학년)
+    const targetGrades = selectedGrade ? [selectedGrade] : ['7', '8', '9', '10', '11', '12'];
+    
+    // 반 개수: 1반 ~ 6반으로 고정
+    const MAX_CLASSES = 6; 
+
+    // 학년 x 반 (예: 7-1, 7-2 ... 12-6) 경로별 개별 검색
+    for (const grade of targetGrades) {
+      for (let c = 1; c <= MAX_CLASSES; c++) {
+        const classKey = `${grade}-${c}`;
+        const classRef = ref(db, `class/${classKey}`);
+        
+        try {
+          const snapshot = await get(classRef);
+          if (!snapshot.exists()) continue;
+
+          const students = snapshot.val();
+          for (const studentId in students) {
+            const dateEntries = students[studentId];
+            
+            for (const currentDate in dateEntries) {
+              if (startDate && currentDate < startDate) continue;
+              if (endDate && currentDate > endDate) continue;
+
+              const studentData = dateEntries[currentDate];
+
+              // 담당 선생님 이름 일치 여부 확인
+              if (studentData.teacher && currentTeacherName) {
+                if (studentData.teacher.trim() !== currentTeacherName.trim()) continue;
+              }
+              
+              if (selectedEnter && String(studentData.accept) !== selectedEnter) continue;
+              if (selectedRequest === 'used' && !studentData.realEnter) continue;
+              if (selectedRequest === 'unused' && studentData.realEnter) continue;
+
+              displayStudentItem(classKey, studentId, currentDate, studentData);
+              foundCount++;
+            }
+          }
+        } catch (e) {
+          // 해당 반에 데이터가 없거나 읽기 실패 시 다음 반으로 계속 진행
+          continue;
+        }
+      }
     }
 
-    const classes = snapshot.val();
+    if (foundCount === 0) {
+      listContainer.innerHTML = '<div class="no-data">검색 결과가 없습니다.</div>';
+    }
+  } catch (error) {
+    console.error('검색 오류:', error);
+    alert('학생 검색 중 오류가 발생했습니다.');
+  }
+}// ==================== 검색 및 선생님 관리 기능 ====================
+async function searchStudents() {
+  const selectedGrade = document.getElementById('studentDefGrade')?.value;
+  const selectedEnter = document.getElementById('studentDefEnter')?.value;
+  const selectedRequest = document.getElementById('studentDefRequest')?.value;
+  
+  const startDate = document.getElementById('studentDefStartDate')?.value;
+  const endDate = document.getElementById('studentDefEndDate')?.value;
+  
+  const listContainer = document.getElementById('listofStudents');
+
+  if (!listContainer) return;
+
+  listContainer.innerHTML = '<div>데이터를 조회 중입니다...</div>';
+
+  try {
     let foundCount = 0;
+    listContainer.innerHTML = '';
 
-    for (const classKey in classes) {
-      const grade = classKey.split('-')[0];
-      if (selectedGrade && grade !== selectedGrade) continue;
+    // 검색 대상 학년 지정 (전체 선택 시 7~12학년)
+    const targetGrades = selectedGrade ? [selectedGrade] : ['7', '8', '9', '10', '11', '12'];
+    
+    // 반 개수: 1반 ~ 6반으로 고정
+    const MAX_CLASSES = 6; 
 
-      const students = classes[classKey];
-      for (const studentId in students) {
-        const dateEntries = students[studentId];
+    // 학년 x 반 (예: 7-1, 7-2 ... 12-6) 경로별 개별 검색
+    for (const grade of targetGrades) {
+      for (let c = 1; c <= MAX_CLASSES; c++) {
+        const classKey = `${grade}-${c}`;
+        const classRef = ref(db, `class/${classKey}`);
         
-        for (const currentDate in dateEntries) {
-          if (startDate && currentDate < startDate) continue;
-          if (endDate && currentDate > endDate) continue;
+        try {
+          const snapshot = await get(classRef);
+          if (!snapshot.exists()) continue;
 
-          const studentData = dateEntries[currentDate];
+          const students = snapshot.val();
+          for (const studentId in students) {
+            const dateEntries = students[studentId];
+            
+            for (const currentDate in dateEntries) {
+              if (startDate && currentDate < startDate) continue;
+              if (endDate && currentDate > endDate) continue;
 
-          if (studentData.teacher !== currentTeacherName) continue;
-          if (selectedEnter && String(studentData.accept) !== selectedEnter) continue;
-          if (selectedRequest === 'used' && !studentData.realEnter) continue;
-          if (selectedRequest === 'unused' && studentData.realEnter) continue;
+              const studentData = dateEntries[currentDate];
 
-          displayStudentItem(classKey, studentId, currentDate, studentData);
-          foundCount++;
+              // 담당 선생님 이름 일치 여부 확인
+              if (studentData.teacher && currentTeacherName) {
+                if (studentData.teacher.trim() !== currentTeacherName.trim()) continue;
+              }
+              
+              if (selectedEnter && String(studentData.accept) !== selectedEnter) continue;
+              if (selectedRequest === 'used' && !studentData.realEnter) continue;
+              if (selectedRequest === 'unused' && studentData.realEnter) continue;
+
+              displayStudentItem(classKey, studentId, currentDate, studentData);
+              foundCount++;
+            }
+          }
+        } catch (e) {
+          // 해당 반에 데이터가 없거나 읽기 실패 시 다음 반으로 계속 진행
+          continue;
         }
       }
     }
