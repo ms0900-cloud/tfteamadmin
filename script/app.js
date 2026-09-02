@@ -325,126 +325,39 @@ async function searchStudents() {
 
   if (!listContainer) return;
 
-  listContainer.innerHTML = '<div>데이터를 조회 중입니다...</div>';
-
   try {
-    let foundCount = 0;
+    const snapshot = await get(ref(db, 'class'));
     listContainer.innerHTML = '';
 
-    // 검색 대상 학년 지정 (전체 선택 시 7~12학년)
-    const targetGrades = selectedGrade ? [selectedGrade] : ['7', '8', '9', '10', '11', '12'];
-    
-    // 반 개수: 1반 ~ 6반으로 고정
-    const MAX_CLASSES = 6; 
-
-    // 학년 x 반 (예: 7-1, 7-2 ... 12-6) 경로별 개별 검색
-    for (const grade of targetGrades) {
-      for (let c = 1; c <= MAX_CLASSES; c++) {
-        const classKey = `${grade}-${c}`;
-        const classRef = ref(db, `class/${classKey}`);
-        
-        try {
-          const snapshot = await get(classRef);
-          if (!snapshot.exists()) continue;
-
-          const students = snapshot.val();
-          for (const studentId in students) {
-            const dateEntries = students[studentId];
-            
-            for (const currentDate in dateEntries) {
-              if (startDate && currentDate < startDate) continue;
-              if (endDate && currentDate > endDate) continue;
-
-              const studentData = dateEntries[currentDate];
-
-              // 담당 선생님 이름 일치 여부 확인
-              if (studentData.teacher && currentTeacherName) {
-                if (studentData.teacher.trim() !== currentTeacherName.trim()) continue;
-              }
-              
-              if (selectedEnter && String(studentData.accept) !== selectedEnter) continue;
-              if (selectedRequest === 'used' && !studentData.realEnter) continue;
-              if (selectedRequest === 'unused' && studentData.realEnter) continue;
-
-              displayStudentItem(classKey, studentId, currentDate, studentData);
-              foundCount++;
-            }
-          }
-        } catch (e) {
-          // 해당 반에 데이터가 없거나 읽기 실패 시 다음 반으로 계속 진행
-          continue;
-        }
-      }
+    if (!snapshot.exists()) {
+      listContainer.innerHTML = '<div class="no-data">데이터가 없습니다.</div>';
+      return;
     }
 
-    if (foundCount === 0) {
-      listContainer.innerHTML = '<div class="no-data">검색 결과가 없습니다.</div>';
-    }
-  } catch (error) {
-    console.error('검색 오류:', error);
-    alert('학생 검색 중 오류가 발생했습니다.');
-  }
-}// ==================== 검색 및 선생님 관리 기능 ====================
-async function searchStudents() {
-  const selectedGrade = document.getElementById('studentDefGrade')?.value;
-  const selectedEnter = document.getElementById('studentDefEnter')?.value;
-  const selectedRequest = document.getElementById('studentDefRequest')?.value;
-  
-  const startDate = document.getElementById('studentDefStartDate')?.value;
-  const endDate = document.getElementById('studentDefEndDate')?.value;
-  
-  const listContainer = document.getElementById('listofStudents');
-
-  if (!listContainer) return;
-
-  listContainer.innerHTML = '<div>데이터를 조회 중입니다...</div>';
-
-  try {
+    const classes = snapshot.val();
     let foundCount = 0;
-    listContainer.innerHTML = '';
 
-    // 검색 대상 학년 지정 (전체 선택 시 7~12학년)
-    const targetGrades = selectedGrade ? [selectedGrade] : ['7', '8', '9', '10', '11', '12'];
-    
-    // 반 개수: 1반 ~ 6반으로 고정
-    const MAX_CLASSES = 6; 
+    for (const classKey in classes) {
+      const grade = classKey.split('-')[0];
+      if (selectedGrade && grade !== selectedGrade) continue;
 
-    // 학년 x 반 (예: 7-1, 7-2 ... 12-6) 경로별 개별 검색
-    for (const grade of targetGrades) {
-      for (let c = 1; c <= MAX_CLASSES; c++) {
-        const classKey = `${grade}-${c}`;
-        const classRef = ref(db, `class/${classKey}`);
+      const students = classes[classKey];
+      for (const studentId in students) {
+        const dateEntries = students[studentId];
         
-        try {
-          const snapshot = await get(classRef);
-          if (!snapshot.exists()) continue;
+        for (const currentDate in dateEntries) {
+          if (startDate && currentDate < startDate) continue;
+          if (endDate && currentDate > endDate) continue;
 
-          const students = snapshot.val();
-          for (const studentId in students) {
-            const dateEntries = students[studentId];
-            
-            for (const currentDate in dateEntries) {
-              if (startDate && currentDate < startDate) continue;
-              if (endDate && currentDate > endDate) continue;
+          const studentData = dateEntries[currentDate];
 
-              const studentData = dateEntries[currentDate];
+          if (studentData.teacher !== currentTeacherName) continue;
+          if (selectedEnter && String(studentData.accept) !== selectedEnter) continue;
+          if (selectedRequest === 'used' && !studentData.realEnter) continue;
+          if (selectedRequest === 'unused' && studentData.realEnter) continue;
 
-              // 담당 선생님 이름 일치 여부 확인
-              if (studentData.teacher && currentTeacherName) {
-                if (studentData.teacher.trim() !== currentTeacherName.trim()) continue;
-              }
-              
-              if (selectedEnter && String(studentData.accept) !== selectedEnter) continue;
-              if (selectedRequest === 'used' && !studentData.realEnter) continue;
-              if (selectedRequest === 'unused' && studentData.realEnter) continue;
-
-              displayStudentItem(classKey, studentId, currentDate, studentData);
-              foundCount++;
-            }
-          }
-        } catch (e) {
-          // 해당 반에 데이터가 없거나 읽기 실패 시 다음 반으로 계속 진행
-          continue;
+          displayStudentItem(classKey, studentId, currentDate, studentData);
+          foundCount++;
         }
       }
     }
@@ -594,39 +507,53 @@ async function loadTeacherList() {
   
   if (!teacherSelect && !checkTeacherSelect) return;
 
-  // 입력된 전체 선생님 명단 (가나다순)
-  const TEACHER_LIST = [
-    "권은숙", "김명환", "김미연", "김민우", "김병관", "김보연", "김성준", "김연호", "김옥출", 
-    "김재란", "김태이", "남현정", "문기쁨", "문종배", "박선영", "박은길", "박정현", "박현종", 
-    "백은영", "송유나", "신혜림", "신혜원", "안세린", "양진철", "우민석", "유리라", "유종현", 
-    "윤수영", "윤진아", "이강현", "이경민", "이근범", "이선미", "이성준", "이승엽", "이유준", 
-    "이이원", "이하나", "이해원", "이현아", "이희동", "임어진", "임현정", "임효기", "조경희", 
-    "조현수", "천태선", "최고아라", "최윤희", "최은경", "하희진", "한가연", "한지혜", "허정희", 
-    "홍진일", "황사라"
-  ];
-
   try {
+    const snapshot = await get(ref(db, 'teacher'));
+    
     if (teacherSelect) teacherSelect.innerHTML = '<option value="">담당 교사를 선택하세요</option>';
     if (checkTeacherSelect) checkTeacherSelect.innerHTML = '<option value="">담당 교사를 선택하세요</option>';
 
-    TEACHER_LIST.forEach((teacherName) => {
-      if (teacherSelect) {
-        const opt1 = document.createElement('option');
-        opt1.value = teacherName;
-        opt1.textContent = teacherName;
-        teacherSelect.appendChild(opt1);
+    if (snapshot.exists()) {
+      const teacherData = snapshot.val();
+
+      const appendOption = (nameValue) => {
+        if (!nameValue) return;
+        if (teacherSelect) {
+          const opt1 = document.createElement('option');
+          opt1.value = nameValue;
+          opt1.textContent = nameValue;
+          teacherSelect.appendChild(opt1);
+        }
+        if (checkTeacherSelect) {
+          const opt2 = document.createElement('option');
+          opt2.value = nameValue;
+          opt2.textContent = nameValue;
+          checkTeacherSelect.appendChild(opt2);
+        }
+      };
+
+      if (typeof teacherData === 'object' && !Array.isArray(teacherData)) {
+        Object.entries(teacherData).forEach(([key, value]) => {
+          let teacherName = key;
+          if (value && typeof value === 'object' && value.name) {
+            teacherName = value.name;
+          } else if (typeof value === 'string') {
+            teacherName = value;
+          }
+          appendOption(teacherName);
+        });
+      } else if (Array.isArray(teacherData)) {
+        teacherData.forEach((teacher) => {
+          const teacherName = typeof teacher === 'object' ? teacher.name : teacher;
+          appendOption(teacherName);
+        });
       }
-      if (checkTeacherSelect) {
-        const opt2 = document.createElement('option');
-        opt2.value = teacherName;
-        opt2.textContent = teacherName;
-        checkTeacherSelect.appendChild(opt2);
-      }
-    });
+    }
   } catch (error) {
     console.error('선생님 목록 로드 오류:', error);
   }
 }
+
 function setupPageNavigation() {
   const pages = [
     { id: 'go-student-btn', url: 'student.html' },
