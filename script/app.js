@@ -508,7 +508,7 @@ async function loadTeacherList() {
   if (!teacherSelect && !checkTeacherSelect) return;
 
   try {
-    const snapshot = await get(ref(db, 'teacher_names'));
+    const snapshot = await get(ref(db, 'teacher'));
     
     if (teacherSelect) teacherSelect.innerHTML = '<option value="">담당 교사를 선택하세요</option>';
     if (checkTeacherSelect) checkTeacherSelect.innerHTML = '<option value="">담당 교사를 선택하세요</option>';
