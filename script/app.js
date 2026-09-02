@@ -319,63 +319,74 @@ async function searchStudents() {
   const endDate = document.getElementById('studentDefEndDate')?.value;
   
   const listContainer = document.getElementById('listofStudents');
-
   if (!listContainer) return;
 
-  listContainer.innerHTML = '<div>조회 중...</div>';
+  // 1. 조회 시작 시 로딩 안내 표시 (검색창 내용 초기화 후 메시지 출력)
+  listContainer.innerHTML = '<div class="loading-status" style="padding: 20px; text-align: center; color: #0056b3; font-weight: bold;">⌛ 데이터를 불러오는 중입니다. 잠시만 기다려주세요...</div>';
 
   try {
     let foundCount = 0;
-    listContainer.innerHTML = '';
 
-    // 학년 대상 설정 (7~12학년)
+    // 학년 및 반 (1~6반) 조회 범위 설정
     const targetGrades = selectedGrade ? [selectedGrade] : ['7', '8', '9', '10', '11', '12'];
-    
-    // 반 개수: 1반 ~ 6반 고정
     const MAX_CLASSES = 6; 
 
-    // 보안 규칙(.read: false) 우회를 위해 학년x반 별로 개별 가져오기
+    // 조회할 학년-반 경로 배열 생성 (예: ["7-1", "7-2", ... "12-6"])
+    const classKeys = [];
     for (const grade of targetGrades) {
       for (let c = 1; c <= MAX_CLASSES; c++) {
-        const classKey = `${grade}-${c}`;
-        const classRef = ref(db, `class/${classKey}`);
-        
+        classKeys.push(`${grade}-${c}`);
+      }
+    }
+
+    // 2. Promise.all을 통해 모든 반 데이터를 '동시에(병렬)' 조회하여 속도 대폭 향상
+    const snapshots = await Promise.all(
+      classKeys.map(async (classKey) => {
         try {
-          const snapshot = await get(classRef);
-          if (!snapshot.exists()) continue;
-
-          const students = snapshot.val();
-          for (const studentId in students) {
-            const dateEntries = students[studentId];
-            
-            for (const currentDate in dateEntries) {
-              if (startDate && currentDate < startDate) continue;
-              if (endDate && currentDate > endDate) continue;
-
-              const studentData = dateEntries[currentDate];
-
-              if (studentData.teacher !== currentTeacherName) continue;
-              if (selectedEnter && String(studentData.accept) !== selectedEnter) continue;
-              if (selectedRequest === 'used' && !studentData.realEnter) continue;
-              if (selectedRequest === 'unused' && studentData.realEnter) continue;
-
-              displayStudentItem(classKey, studentId, currentDate, studentData);
-              foundCount++;
-            }
-          }
+          const snapshot = await get(ref(db, `class/${classKey}`));
+          return { classKey, snapshot };
         } catch (e) {
-          // 해당 반에 데이터가 없거나 에러가 나면 다음 반 진행
-          continue;
+          return { classKey, snapshot: null };
+        }
+      })
+    );
+
+    // 3. 모든 데이터 조회가 끝난 후에 목록 컨테이너 비우기
+    listContainer.innerHTML = '';
+
+    // 4. 받아온 데이터를 순회하면서 조건 검사 및 화면에 출력
+    for (const { classKey, snapshot } of snapshots) {
+      if (!snapshot || !snapshot.exists()) continue;
+
+      const students = snapshot.val();
+      for (const studentId in students) {
+        const dateEntries = students[studentId];
+        
+        for (const currentDate in dateEntries) {
+          if (startDate && currentDate < startDate) continue;
+          if (endDate && currentDate > endDate) continue;
+
+          const studentData = dateEntries[currentDate];
+
+          // 담당 교사 및 검색 조건 필터링
+          if (studentData.teacher !== currentTeacherName) continue;
+          if (selectedEnter && String(studentData.accept) !== selectedEnter) continue;
+          if (selectedRequest === 'used' && !studentData.realEnter) continue;
+          if (selectedRequest === 'unused' && studentData.realEnter) continue;
+
+          displayStudentItem(classKey, studentId, currentDate, studentData);
+          foundCount++;
         }
       }
     }
 
+    // 5. 검색 결과 유무에 따른 안내 메시지 출력
     if (foundCount === 0) {
-      listContainer.innerHTML = '<div class="no-data">검색 결과가 없습니다.</div>';
+      listContainer.innerHTML = '<div class="no-data" style="padding: 20px; text-align: center; color: #666;">검색 결과가 없습니다.</div>';
     }
   } catch (error) {
     console.error('검색 오류:', error);
-    alert('학생 검색 중 오류가 발생했습니다.');
+    listContainer.innerHTML = '<div class="error-data" style="padding: 20px; text-align: center; color: red;">학생 검색 중 오류가 발생했습니다.</div>';
   }
 }
 
