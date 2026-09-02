@@ -507,53 +507,39 @@ async function loadTeacherList() {
   
   if (!teacherSelect && !checkTeacherSelect) return;
 
+  // 입력된 전체 선생님 명단 (가나다순)
+  const TEACHER_LIST = [
+    "권은숙", "김명환", "김미연", "김민우", "김병관", "김보연", "김성준", "김연호", "김옥출", 
+    "김재란", "김태이", "남현정", "문기쁨", "문종배", "박선영", "박은길", "박정현", "박현종", 
+    "백은영", "송유나", "신혜림", "신혜원", "안세린", "양진철", "우민석", "유리라", "유종현", 
+    "윤수영", "윤진아", "이강현", "이경민", "이근범", "이선미", "이성준", "이승엽", "이유준", 
+    "이이원", "이하나", "이해원", "이현아", "이희동", "임어진", "임현정", "임효기", "조경희", 
+    "조현수", "천태선", "최고아라", "최윤희", "최은경", "하희진", "한가연", "한지혜", "허정희", 
+    "홍진일", "황사라"
+  ];
+
   try {
-    const snapshot = await get(ref(db, 'teacher'));
-    
     if (teacherSelect) teacherSelect.innerHTML = '<option value="">담당 교사를 선택하세요</option>';
     if (checkTeacherSelect) checkTeacherSelect.innerHTML = '<option value="">담당 교사를 선택하세요</option>';
 
-    if (snapshot.exists()) {
-      const teacherData = snapshot.val();
-
-      const appendOption = (nameValue) => {
-        if (!nameValue) return;
-        if (teacherSelect) {
-          const opt1 = document.createElement('option');
-          opt1.value = nameValue;
-          opt1.textContent = nameValue;
-          teacherSelect.appendChild(opt1);
-        }
-        if (checkTeacherSelect) {
-          const opt2 = document.createElement('option');
-          opt2.value = nameValue;
-          opt2.textContent = nameValue;
-          checkTeacherSelect.appendChild(opt2);
-        }
-      };
-
-      if (typeof teacherData === 'object' && !Array.isArray(teacherData)) {
-        Object.entries(teacherData).forEach(([key, value]) => {
-          let teacherName = key;
-          if (value && typeof value === 'object' && value.name) {
-            teacherName = value.name;
-          } else if (typeof value === 'string') {
-            teacherName = value;
-          }
-          appendOption(teacherName);
-        });
-      } else if (Array.isArray(teacherData)) {
-        teacherData.forEach((teacher) => {
-          const teacherName = typeof teacher === 'object' ? teacher.name : teacher;
-          appendOption(teacherName);
-        });
+    TEACHER_LIST.forEach((teacherName) => {
+      if (teacherSelect) {
+        const opt1 = document.createElement('option');
+        opt1.value = teacherName;
+        opt1.textContent = teacherName;
+        teacherSelect.appendChild(opt1);
       }
-    }
+      if (checkTeacherSelect) {
+        const opt2 = document.createElement('option');
+        opt2.value = teacherName;
+        opt2.textContent = teacherName;
+        checkTeacherSelect.appendChild(opt2);
+      }
+    });
   } catch (error) {
     console.error('선생님 목록 로드 오류:', error);
   }
 }
-
 function setupPageNavigation() {
   const pages = [
     { id: 'go-student-btn', url: 'student.html' },
