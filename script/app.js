@@ -118,7 +118,6 @@ function setupStudentPage() {
       }
     }
 
-    // 1개월(오늘 기준 31일 이내) 필터링 검증
     const todayObj = new Date();
     todayObj.setHours(0, 0, 0, 0);
 
@@ -223,7 +222,7 @@ function setupStudentPage() {
 
       let msg = '';
       if (successes > 0) msg += `출입 요청이 완료되었습니다! (${successes}건)`;
-      if (errors.length > 0) msg += `\n다음 항목은 처리되지 않았증니다:\n- ${errors.join('\n- ')}`;
+      if (errors.length > 0) msg += `\n다음 항목은 처리되지 않았습니다:\n- ${errors.join('\n- ')}`;
       alert(msg);
       
       const requestForm = document.getElementById("requestForm");
@@ -267,10 +266,9 @@ function setupStudentPage() {
           const realEnter = typeof data.realEnter === 'boolean' 
             ? data.realEnter
               ? "사용함(Đã sử dụng)" 
-              : "사용 안 함(Không 사용)" 
+              : "사용 안 함(Không sử dụng)" 
             : data.realEnter || "미확인(Chưa xác nhận)";
 
-          // accept가 true(또는 문자열 "true")이고 realEnter가 false(또는 문자열 "false", null, undefined)인지 확인
           const isAccepted = data.accept === true || data.accept === "true";
           const isNotUsedYet = data.realEnter === false || data.realEnter === "false" || !data.realEnter;
 
@@ -296,7 +294,6 @@ function setupStudentPage() {
         studentInfoElem.innerHTML = `데이터 조회 중 오류가 발생했습니다(ĐÃ XẢY RA LỖI KHI TRUY XUẤT DỮ LIỆU): ${error}`;
       });
       
-      // 승인 상태 변경 실시간 대기 함수 실행
       setupStudentApprovalNotification(gc.grade, gc.classNum, id, date);
     } else {
       studentInfoElem.innerHTML = "정보가 없습니다.(KHÔNG CÓ THÔNG TIN.)";
@@ -312,7 +309,7 @@ function setupStudentPage() {
   displayStudentInfo();
 }
 
-// ==================== 검색 및 선생님 관리 기능 ====================
+// ==================== 검색 및 선생님 관리 기능 (개작됨) ====================
 async function searchStudents() {
   const selectedGrade = document.getElementById('studentDefGrade')?.value;
   const selectedEnter = document.getElementById('studentDefEnter')?.value;
@@ -325,39 +322,50 @@ async function searchStudents() {
 
   if (!listContainer) return;
 
+  listContainer.innerHTML = '<div>조회 중...</div>';
+
   try {
-    const snapshot = await get(ref(db, 'class'));
+    let foundCount = 0;
     listContainer.innerHTML = '';
 
-    if (!snapshot.exists()) {
-      listContainer.innerHTML = '<div class="no-data">데이터가 없습니다.</div>';
-      return;
-    }
+    // 학년 대상 설정 (7~12학년)
+    const targetGrades = selectedGrade ? [selectedGrade] : ['7', '8', '9', '10', '11', '12'];
+    
+    // 반 개수: 1반 ~ 6반 고정
+    const MAX_CLASSES = 6; 
 
-    const classes = snapshot.val();
-    let foundCount = 0;
-
-    for (const classKey in classes) {
-      const grade = classKey.split('-')[0];
-      if (selectedGrade && grade !== selectedGrade) continue;
-
-      const students = classes[classKey];
-      for (const studentId in students) {
-        const dateEntries = students[studentId];
+    // 보안 규칙(.read: false) 우회를 위해 학년x반 별로 개별 가져오기
+    for (const grade of targetGrades) {
+      for (let c = 1; c <= MAX_CLASSES; c++) {
+        const classKey = `${grade}-${c}`;
+        const classRef = ref(db, `class/${classKey}`);
         
-        for (const currentDate in dateEntries) {
-          if (startDate && currentDate < startDate) continue;
-          if (endDate && currentDate > endDate) continue;
+        try {
+          const snapshot = await get(classRef);
+          if (!snapshot.exists()) continue;
 
-          const studentData = dateEntries[currentDate];
+          const students = snapshot.val();
+          for (const studentId in students) {
+            const dateEntries = students[studentId];
+            
+            for (const currentDate in dateEntries) {
+              if (startDate && currentDate < startDate) continue;
+              if (endDate && currentDate > endDate) continue;
 
-          if (studentData.teacher !== currentTeacherName) continue;
-          if (selectedEnter && String(studentData.accept) !== selectedEnter) continue;
-          if (selectedRequest === 'used' && !studentData.realEnter) continue;
-          if (selectedRequest === 'unused' && studentData.realEnter) continue;
+              const studentData = dateEntries[currentDate];
 
-          displayStudentItem(classKey, studentId, currentDate, studentData);
-          foundCount++;
+              if (studentData.teacher !== currentTeacherName) continue;
+              if (selectedEnter && String(studentData.accept) !== selectedEnter) continue;
+              if (selectedRequest === 'used' && !studentData.realEnter) continue;
+              if (selectedRequest === 'unused' && studentData.realEnter) continue;
+
+              displayStudentItem(classKey, studentId, currentDate, studentData);
+              foundCount++;
+            }
+          }
+        } catch (e) {
+          // 해당 반에 데이터가 없거나 에러가 나면 다음 반 진행
+          continue;
         }
       }
     }
@@ -417,7 +425,6 @@ function toggleAllCheckboxes() {
   });
 }
 
-// 선생님이 승인 버튼 누를 시 실행되는 함수
 async function updateStudentApprovals() {
   const selectedStudents = document.querySelectorAll('.student-check:checked');
   if (selectedStudents.length === 0) {
@@ -433,7 +440,6 @@ async function updateStudentApprovals() {
       const studentId = studentItem.dataset.id;
       const date = studentItem.dataset.date;
       
-      // DB 내 승인 상태를 true로 업데이트 -> 해당 학생 단말기에서 실시간 감지하여 푸시 알림 발송
       updates[`class/${classKey}/${studentId}/${date}/accept`] = true;
     });
 
@@ -569,6 +575,11 @@ function setupPageNavigation() {
 
 // ==================== 앱 초기화 ====================
 document.addEventListener("DOMContentLoaded", () => {
+  // 메인 이동 이벤트 등록
+  if (document.getElementById('go-student-btn') || document.getElementById('go-teacher-btn')) {
+    setupPageNavigation();
+  }
+
   if (document.getElementById('studentTeacher') || document.getElementById('checkStudentTeacher')) {
     loadTeacherList();
   }
@@ -576,10 +587,6 @@ document.addEventListener("DOMContentLoaded", () => {
   
   if (document.getElementById('studentInfo') || document.getElementById('uploadStudentData') || document.getElementById('requestForm')) {
     setupStudentPage();
-  }
-  
-  if (document.getElementById('go-student-btn') || document.getElementById('go-teacher-btn')) {
-    setupPageNavigation();
   }
 
   const today = new Date();
